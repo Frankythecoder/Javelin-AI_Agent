@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Chat with Gemini Agent</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+
+        .chat-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 800px;
+            height: 600px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            animation: slideUp 0.8s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .chat-header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            padding: 1.5rem;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .chat-header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="25" cy="25" r="1" fill="white" opacity="0.1"/><circle cx="75" cy="75" r="1" fill="white" opacity="0.1"/><circle cx="50" cy="10" r="0.5" fill="white" opacity="0.15"/><circle cx="10" cy="60" r="0.8" fill="white" opacity="0.1"/><circle cx="90" cy="40" r="0.6" fill="white" opacity="0.12"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>');
+        }
+
+        .chat-header h1 {
+            color: white;
+            font-size: 1.8rem;
+            font-weight: 600;
+            margin: 0;
+            position: relative;
+            z-index: 1;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        #chatbox {
+            flex: 1;
+            padding: 1.5rem;
+            overflow-y: auto;
+            background: #f8fafc;
+            background-image: 
+                radial-gradient(circle at 25px 25px, rgba(255,255,255,0.3) 2px, transparent 0),
+                radial-gradient(circle at 75px 75px, rgba(255,255,255,0.3) 2px, transparent 0);
+            background-size: 100px 100px;
+        }
+
+        #chatbox::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        #chatbox::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 3px;
+        }
+
+        #chatbox::-webkit-scrollbar-thumb {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            border-radius: 3px;
+        }
+
+        .message {
+            margin-bottom: 1rem;
+            animation: fadeInUp 0.5s ease-out;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message-bubble {
+            max-width: 80%;
+            padding: 1rem 1.25rem;
+            border-radius: 18px;
+            position: relative;
+            word-wrap: break-word;
+            font-size: 0.95rem;
+            line-height: 1.4;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .user .message-bubble {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin-left: auto;
+            border-bottom-right-radius: 4px;
+        }
+
+        .user .message-bubble::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            right: -8px;
+            width: 0;
+            height: 0;
+            border: 8px solid transparent;
+            border-left-color: #764ba2;
+            border-bottom: 0;
+        }
+
+        .agent .message-bubble {
+            background: white;
+            color: #2d3748;
+            margin-right: auto;
+            border: 1px solid #e2e8f0;
+            border-bottom-left-radius: 4px;
+        }
+
+        .agent .message-bubble::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: -8px;
+            width: 0;
+            height: 0;
+            border: 8px solid transparent;
+            border-right-color: white;
+            border-bottom: 0;
+        }
+
+        .chat-input-container {
+            background: white;
+            padding: 1.5rem;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        #chat-form {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        #message {
+            flex: 1;
+            padding: 0.875rem 1.25rem;
+            border: 2px solid #e2e8f0;
+            border-radius: 25px;
+            font-size: 1rem;
+            outline: none;
+            transition: all 0.3s ease;
+            background: #f8fafc;
+        }
+
+        #message:focus {
+            border-color: #667eea;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 0.875rem 1.5rem;
+            border-radius: 25px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        button:hover::before {
+            left: 100%;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        @media (max-width: 768px) {
+            .chat-container {
+                height: 90vh;
+                margin: 1rem;
+                border-radius: 15px;
+            }
+
+            .chat-header h1 {
+                font-size: 1.5rem;
+            }
+
+            .message-bubble {
+                max-width: 90%;
+                font-size: 0.9rem;
+            }
+
+            #message {
+                font-size: 16px; /* Prevents zoom on iOS */
+            }
+        }
+
+        .typing-indicator {
+            display: none;
+            align-items: center;
+            gap: 0.5rem;
+            color: #64748b;
+            font-style: italic;
+            margin-bottom: 1rem;
+        }
+
+        .typing-dots {
+            display: flex;
+            gap: 3px;
+        }
+
+        .typing-dots span {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #64748b;
+            animation: typing 1.5s infinite;
+        }
+
+        .typing-dots span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-dots span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+            0%, 60%, 100% {
+                transform: translateY(0);
+                opacity: 0.4;
+            }
+            30% {
+                transform: translateY(-10px);
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>Chat with Gemini Agent</h1>
+        </div>
+        
+        <div id="chatbox">
+            <div class="typing-indicator" id="typing-indicator">
+                <span>Gemini is typing</span>
+                <div class="typing-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="chat-input-container">
+            <form id="chat-form">
+                <input type="text" id="message" autocomplete="off" placeholder="Type your message..." />
+                <button type="submit">Send</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const chatbox = document.getElementById('chatbox');
+        const chatForm = document.getElementById('chat-form');
+        const messageInput = document.getElementById('message');
+        const typingIndicator = document.getElementById('typing-indicator');
+
+        function appendMessage(sender, text) {
+            const div = document.createElement('div');
+            div.classList.add('message');
+            div.classList.add(sender);
+            
+            const bubble = document.createElement('div');
+            bubble.classList.add('message-bubble');
+            bubble.textContent = text;
+            
+            div.appendChild(bubble);
+            chatbox.appendChild(div);
+            chatbox.scrollTop = chatbox.scrollHeight;
+        }
+
+        function showTypingIndicator() {
+            typingIndicator.style.display = 'flex';
+            chatbox.scrollTop = chatbox.scrollHeight;
+        }
+
+        function hideTypingIndicator() {
+            typingIndicator.style.display = 'none';
+        }
+
+        chatForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const message = messageInput.value.trim();
+            if (!message) return;
+            
+            appendMessage('user', message);
+            messageInput.value = '';
+            showTypingIndicator();
+
+            try {
+                const response = await fetch('/api/chat/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ message: message })
+                });
+
+                const data = await response.json();
+                hideTypingIndicator();
+                
+                if (data.response) {
+                    appendMessage('agent', data.response);
+                } else if (data.error) {
+                    appendMessage('agent', `Error: ${data.error}`);
+                }
+            } catch (error) {
+                hideTypingIndicator();
+                appendMessage('agent', 'Error sending request.');
+                console.error('Request failed', error);
+            }
+        });
+
+        // Auto-focus input on page load
+        messageInput.focus();
+    </script>
+</body>
+</html>

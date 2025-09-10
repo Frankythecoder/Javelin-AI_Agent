@@ -1,0 +1,17 @@
+# Byte-compiled / cached files
+__pycache__/
+**/__pycache__/
+
+# Environment files
+.env
+**/.env
+
+# Django migrations directories
+**/migrations/**
+
+# All package init files
+__init__.py
+**/__init__.py
+
+# SQLite database
+db.sqlite3
