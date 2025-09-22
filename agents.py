@@ -105,7 +105,7 @@ def delete_file_tool(args: Dict[str, Any]) -> str:
 
 
 def edit_file_tool(args: Dict[str, Any]) -> str:
-    """Make edits to a text file by replacing old_str with new_str."""
+    """Create or edit any file by replacing old_str with new_str, or writing new_str if the file does not exist. Supports all file types, including code files such as .cpp, .py, .js, etc."""
     try:
         path = args.get('path', '')
         old_str = args.get('old_str', '')
@@ -145,6 +145,23 @@ def edit_file_tool(args: Dict[str, Any]) -> str:
 
     except Exception as e:
         return f"Error editing file: {str(e)}"
+
+
+def rename_file_tool(args: Dict[str, Any]) -> str:
+    """Rename a file, e.g., change program.py to program.cpp. Args: old_path (str), new_path (str)."""
+    try:
+        old_path = args.get('old_path', '')
+        new_path = args.get('new_path', '')
+        if not old_path or not new_path:
+            return "Error: old_path and new_path are required."
+        if not os.path.exists(old_path):
+            return f"Error: file {old_path} does not exist."
+        if os.path.exists(new_path):
+            return f"Error: file {new_path} already exists."
+        os.rename(old_path, new_path)
+        return f"Successfully renamed {old_path} to {new_path}"
+    except Exception as e:
+        return f"Error renaming file: {str(e)}"
 
 
 # Define the read_file tool
@@ -202,17 +219,13 @@ DELETE_FILE_DEFINITION = ToolDefinition(
 # Define the edit_file tool
 EDIT_FILE_DEFINITION = ToolDefinition(
     name="edit_file",
-    description="""Make edits to a text file.
-
-Replaces 'old_str' with 'new_str' in the given file. 'old_str' and 'new_str' MUST be different from each other.
-
-If the file specified with path doesn't exist, it will be created.""",
+    description="""Create or edit any file by replacing old_str with new_str, or writing new_str if the file does not exist. Supports all file types, including code files such as .cpp, .py, .js, etc.""",
     parameters={
         "type": "object",
         "properties": {
             "path": {
                 "type": "string",
-                "description": "The path to the file"
+                "description": "The path to the file (any file type allowed)"
             },
             "old_str": {
                 "type": "string",
@@ -220,7 +233,7 @@ If the file specified with path doesn't exist, it will be created.""",
             },
             "new_str": {
                 "type": "string",
-                "description": "Text to replace old_str with"
+                "description": "Text to replace old_str with, or to write if creating a new file"
             }
         },
         "required": ["path", "old_str", "new_str"]
@@ -229,12 +242,33 @@ If the file specified with path doesn't exist, it will be created.""",
 )
 
 
+RENAME_FILE_DEFINITION = ToolDefinition(
+    name="rename_file",
+    description="Rename a file, e.g., change program.py to program.cpp. Args: old_path (str), new_path (str).",
+    parameters={
+        "type": "object",
+        "properties": {
+            "old_path": {
+                "type": "string",
+                "description": "The current file path."
+            },
+            "new_path": {
+                "type": "string",
+                "description": "The new file path (with new extension/type)."
+            }
+        },
+        "required": ["old_path", "new_path"]
+    },
+    function=rename_file_tool
+)
+
+
 def main():
     # Configure Gemini with API key
     genai.configure(api_key=settings.GENAI_API_KEY)
 
     # Create the model with tools
-    tools = [READ_FILE_DEFINITION, LIST_FILES_DEFINITION, EDIT_FILE_DEFINITION, DELETE_FILE_DEFINITION]
+    tools = [READ_FILE_DEFINITION, LIST_FILES_DEFINITION, EDIT_FILE_DEFINITION, DELETE_FILE_DEFINITION, RENAME_FILE_DEFINITION]
     model = genai.GenerativeModel('gemini-2.0-flash')
 
     def get_user_message():
@@ -516,6 +550,37 @@ class Agent:
                 response={'error': 'Tool not found'}
             )
         )
+
+    def generate_code(self, task_description: str, language: str = "python", stepwise: bool = True) -> str:
+        """
+        Generate complex code using Gemini with advanced prompt engineering.
+        Args:
+            task_description (str): Description of the code to generate.
+            language (str): Programming language for the code.
+            stepwise (bool): Whether to use a stepwise prompt for better results.
+        Returns:
+            str: Generated code.
+        """
+        # Configure Gemini API key if not already configured
+        genai.configure(api_key=settings.GENAI_API_KEY)
+        if stepwise:
+            prompt = (
+                f"""
+                Write a complete, well-structured {language} program for the following task:
+                {task_description}
+                
+                Please follow these steps:
+                1. Start by outlining the main components or functions needed.
+                2. Implement each component step by step, with clear comments.
+                3. At the end, provide the full code in a single code block.
+                4. Ensure the code is ready to run and includes all necessary parts (imports, main function, etc.).
+                """
+            )
+        else:
+            prompt = f"Write a complete {language} program for the following task: {task_description}"
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        response = model.generate_content(prompt)
+        return response.text.strip()
 
 
 if __name__ == "__main__":
