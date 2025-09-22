@@ -13,7 +13,7 @@ This project is a Django-based web application that integrates with Google's Gem
 
 - **Agentic File Tools:**  
   - Read, list, create, edit, delete, and rename files of any type.
-  - Change file extensions/types (e.g., `.py` to `.cpp`) programmatically.
+  - Change file extensions/types (e.g., `.py` to `.cpp` or any other programming language) programmatically.
 
 - **Web Chat Interface:**  
   - Modern, responsive chat UI for interacting with the Gemini agent.
