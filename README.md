@@ -64,7 +64,6 @@ cd ai_agent
 
 ### 2. Install Dependencies
 
-- Python 3.8+
 - Django 5.x
 - google-generativeai
 - python-decouple
