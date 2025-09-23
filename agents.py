@@ -104,7 +104,7 @@ def delete_file_tool(args: Dict[str, Any]) -> str:
 
 
 
-def edit_file_tool(args: Dict[str, Any]) -> str:
+def create_and_edit_file_tool(args: Dict[str, Any]) -> str:
     """Create or edit any file by replacing old_str with new_str, or writing new_str if the file does not exist. Supports all file types, including code files such as .cpp, .py, .js, etc."""
     try:
         path = args.get('path', '')
@@ -217,8 +217,8 @@ DELETE_FILE_DEFINITION = ToolDefinition(
 
 
 # Define the edit_file tool
-EDIT_FILE_DEFINITION = ToolDefinition(
-    name="edit_file",
+CREATE_AND_EDIT_FILE_DEFINITION = ToolDefinition(
+    name="create_and_edit_file",
     description="""Create or edit any file by replacing old_str with new_str, or writing new_str if the file does not exist. Supports all file types, including code files such as .cpp, .py, .js, etc.""",
     parameters={
         "type": "object",
@@ -238,7 +238,7 @@ EDIT_FILE_DEFINITION = ToolDefinition(
         },
         "required": ["path", "old_str", "new_str"]
     },
-    function=edit_file_tool
+    function=create_and_edit_file_tool
 )
 
 
@@ -268,7 +268,7 @@ def main():
     genai.configure(api_key=settings.GENAI_API_KEY)
 
     # Create the model with tools
-    tools = [READ_FILE_DEFINITION, LIST_FILES_DEFINITION, EDIT_FILE_DEFINITION, DELETE_FILE_DEFINITION, RENAME_FILE_DEFINITION]
+    tools = [READ_FILE_DEFINITION, LIST_FILES_DEFINITION, CREATE_AND_EDIT_FILE_DEFINITION, DELETE_FILE_DEFINITION, RENAME_FILE_DEFINITION]
     model = genai.GenerativeModel('gemini-2.0-flash')
 
     def get_user_message():

@@ -10,6 +10,8 @@ import google.generativeai as genai
 from decouple import config
 from django.conf import settings
 
+from agents import RENAME_FILE_DEFINITION
+
 # Configure Gemini API key
 genai.configure(api_key=settings.GENAI_API_KEY)
 
@@ -52,11 +54,12 @@ agents_module = load_module_from_s3(bucket_name, s3_key)
 Agent = agents_module.Agent
 READ_FILE_DEFINITION = agents_module.READ_FILE_DEFINITION
 LIST_FILES_DEFINITION = agents_module.LIST_FILES_DEFINITION
-EDIT_FILE_DEFINITION = agents_module.EDIT_FILE_DEFINITION
+CREATE_AND_EDIT_FILE_DEFINITION = agents_module.CREATE_AND_EDIT_FILE_DEFINITION
 DELETE_FILE_DEFINITION = agents_module.DELETE_FILE_DEFINITION
+RENAME_FILE_DEFINITION = agents_module.RENAME_FILE_DEFINITION
 
 # Initialize Gemini agent
-tools = [READ_FILE_DEFINITION, LIST_FILES_DEFINITION, EDIT_FILE_DEFINITION, DELETE_FILE_DEFINITION]
+tools = [READ_FILE_DEFINITION, LIST_FILES_DEFINITION, CREATE_AND_EDIT_FILE_DEFINITION, DELETE_FILE_DEFINITION, RENAME_FILE_DEFINITION]
 model = genai.GenerativeModel('gemini-2.0-flash')
 agent = Agent(model, get_user_message=None, tools=tools)
 
