@@ -64,6 +64,8 @@ cd ai_agent
 
 ### 2. Install Dependencies
 
+This project needs Python v3.8 or higher installed in your local machine.
+
 - Django 5.x
 - google-generativeai
 - python-decouple
