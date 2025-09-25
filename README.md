@@ -2,7 +2,7 @@
 
 ## Overview
 
-This project is a Django-based web application that integrates with Google's Gemini generative AI model to provide agentic code generation, file management, and chat capabilities. It features a modern chat UI, file tools, and supports code generation and manipulation for any programming language.
+This project is a Django-based web application that integrates with Google's Gemini generative AI model to provide agentic code generation, file management, and chat capabilities across all directories and folders in the local machine. It features a modern chat UI, file tools, and supports code generation and manipulation for any programming language.
 
 ---
 
