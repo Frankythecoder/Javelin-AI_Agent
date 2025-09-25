@@ -1,3 +1,8 @@
+# SECURITY WARNING:
+# The file tools below now accept absolute and relative paths.
+# This allows reading, writing, deleting, and renaming files anywhere on the system
+# that the process has permission for. Use with caution!
+
 import os
 import json
 import google.generativeai as genai
@@ -14,7 +19,7 @@ class ToolDefinition:
 
 
 def read_file_tool(args: Dict[str, Any]) -> str:
-    """Read the contents of a given relative file path."""
+    """Read the contents of a given file path (absolute or relative)."""
     try:
         path = args.get('path', '')
         with open(path, 'r', encoding='utf-8') as f:
@@ -25,7 +30,7 @@ def read_file_tool(args: Dict[str, Any]) -> str:
 
 
 def list_files_tool(args: Dict[str, Any]) -> str:
-    """List files and directories at a given path."""
+    """List files and directories at a given path (absolute or relative)."""
     try:
         path = args.get('path', '.')
         if not path:
@@ -59,7 +64,7 @@ def list_files_tool(args: Dict[str, Any]) -> str:
 
 
 def create_new_file(file_path: str, content: str) -> str:
-    """Create a new file with the given content."""
+    """Create a new file with the given content at any path (absolute or relative)."""
     try:
         # Create directory if it doesn't exist
         directory = os.path.dirname(file_path)
@@ -76,36 +81,23 @@ def create_new_file(file_path: str, content: str) -> str:
 
 
 def delete_file_tool(args: Dict[str, Any]) -> str:
-    """Delete a file in the current working directory by name."""
+    """Delete a file at any path (absolute or relative)."""
     try:
-        filename = args.get('path', '')  # still using 'path' as param for consistency
-
-        if not filename:
-            return "Error: no filename provided"
-
-        # Ensure only file name, not directory traversal
-        if os.path.basename(filename) != filename:
-            return "Error: only file names allowed, not paths"
-
-        # Resolve to current working directory
-        file_path = os.path.join(os.getcwd(), filename)
-
+        file_path = args.get('path', '')
+        if not file_path:
+            return "Error: no file path provided"
         if not os.path.exists(file_path):
-            return f"Error: file {filename} does not exist in current directory"
-
+            return f"Error: file {file_path} does not exist"
         if os.path.isdir(file_path):
-            return f"Error: {filename} is a directory, not a file"
-
+            return f"Error: {file_path} is a directory, not a file"
         os.remove(file_path)
-        return f"Successfully deleted file {filename}"
-
+        return f"Successfully deleted file {file_path}"
     except Exception as e:
         return f"Error deleting file: {str(e)}"
 
 
-
 def create_and_edit_file_tool(args: Dict[str, Any]) -> str:
-    """Create or edit any file by replacing old_str with new_str, or writing new_str if the file does not exist. Supports all file types, including code files such as .cpp, .py, .js, etc."""
+    """Create or edit any file at any path (absolute or relative) by replacing old_str with new_str, or writing new_str if the file does not exist."""
     try:
         path = args.get('path', '')
         old_str = args.get('old_str', '')
@@ -148,7 +140,7 @@ def create_and_edit_file_tool(args: Dict[str, Any]) -> str:
 
 
 def rename_file_tool(args: Dict[str, Any]) -> str:
-    """Rename a file, e.g., change program.py to program.cpp. Args: old_path (str), new_path (str)."""
+    """Rename a file at any path (absolute or relative). Args: old_path (str), new_path (str)."""
     try:
         old_path = args.get('old_path', '')
         new_path = args.get('new_path', '')
@@ -167,13 +159,13 @@ def rename_file_tool(args: Dict[str, Any]) -> str:
 # Define the read_file tool
 READ_FILE_DEFINITION = ToolDefinition(
     name="read_file",
-    description="Read the contents of a given relative file path. Use this when you want to see what's inside a file. Do not use this with directory names.",
+    description="Read the contents of a given file path (absolute or relative). Use this when you want to see what's inside a file. Do not use this with directory names.",
     parameters={
         "type": "object",
         "properties": {
             "path": {
                 "type": "string",
-                "description": "The relative path of a file in the working directory."
+                "description": "The absolute or relative path of a file."
             }
         },
         "required": ["path"]
@@ -184,13 +176,13 @@ READ_FILE_DEFINITION = ToolDefinition(
 # Define the list_files tool
 LIST_FILES_DEFINITION = ToolDefinition(
     name="list_files",
-    description="List files and directories at a given path. If no path is provided, lists files in the current directory.",
+    description="List files and directories at a given path (absolute or relative). If no path is provided, lists files in the current directory.",
     parameters={
         "type": "object",
         "properties": {
             "path": {
                 "type": "string",
-                "description": "Optional relative path to list files from. Defaults to current directory if not provided."
+                "description": "Optional absolute or relative path to list files from. Defaults to current directory if not provided."
             }
         },
         "required": []
@@ -201,13 +193,13 @@ LIST_FILES_DEFINITION = ToolDefinition(
 
 DELETE_FILE_DEFINITION = ToolDefinition(
     name="delete_file",
-    description="Delete a file in the current working directory by filename.",
+    description="Delete a file at any path (absolute or relative).",
     parameters={
         "type": "object",
         "properties": {
             "path": {
                 "type": "string",
-                "description": "The name of the file in the current working directory to delete."
+                "description": "The absolute or relative path of the file to delete."
             }
         },
         "required": ["path"]
@@ -219,13 +211,13 @@ DELETE_FILE_DEFINITION = ToolDefinition(
 # Define the edit_file tool
 CREATE_AND_EDIT_FILE_DEFINITION = ToolDefinition(
     name="create_and_edit_file",
-    description="""Create or edit any file by replacing old_str with new_str, or writing new_str if the file does not exist. Supports all file types, including code files such as .cpp, .py, .js, etc.""",
+    description="""Create or edit any file at any path (absolute or relative) by replacing old_str with new_str, or writing new_str if the file does not exist. Supports all file types, including code files such as .cpp, .py, .js, etc.""",
     parameters={
         "type": "object",
         "properties": {
             "path": {
                 "type": "string",
-                "description": "The path to the file (any file type allowed)"
+                "description": "The absolute or relative path to the file (any file type allowed)"
             },
             "old_str": {
                 "type": "string",
@@ -244,17 +236,17 @@ CREATE_AND_EDIT_FILE_DEFINITION = ToolDefinition(
 
 RENAME_FILE_DEFINITION = ToolDefinition(
     name="rename_file",
-    description="Rename a file, e.g., change program.py to program.cpp. Args: old_path (str), new_path (str).",
+    description="Rename a file at any path (absolute or relative). Args: old_path (str), new_path (str).",
     parameters={
         "type": "object",
         "properties": {
             "old_path": {
                 "type": "string",
-                "description": "The current file path."
+                "description": "The current absolute or relative file path."
             },
             "new_path": {
                 "type": "string",
-                "description": "The new file path (with new extension/type)."
+                "description": "The new absolute or relative file path (with new extension/type)."
             }
         },
         "required": ["old_path", "new_path"]
