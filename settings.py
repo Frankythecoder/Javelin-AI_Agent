@@ -17,6 +17,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 GENAI_API_KEY = os.getenv('API_KEY')
+GMAIL_SENDER_ADDRESS = os.getenv('GMAIL_ADDRESS')
+GMAIL_APP_PASSWORD = os.getenv('GMAIL_PASSWORD')
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 # In flat layout, settings.py is in project root, so parent is the project root

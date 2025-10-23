@@ -5,6 +5,8 @@
 
 import os
 import json
+import webbrowser
+from urllib.parse import quote
 import google.generativeai as genai
 from typing import Dict, List, Callable, Any
 from django.conf import settings
@@ -156,6 +158,29 @@ def rename_file_tool(args: Dict[str, Any]) -> str:
         return f"Error renaming file: {str(e)}"
 
 
+def open_gmail_and_compose_tool(args: Dict[str, Any]) -> str:
+    recipient = args.get('recipient', '').strip()
+    subject = args.get('subject', '')
+    body = args.get('body', '')
+    if not recipient:
+        return "Error: recipient is required"
+
+    query = [f"to={quote(recipient)}"]
+    if subject:
+        query.append(f"su={quote(subject)}")
+    if body:
+        query.append(f"body={quote(body)}")
+    compose_url = "https://mail.google.com/mail/?view=cm&fs=1&tf=1&" + "&".join(query)
+
+    try:
+        opened = webbrowser.open_new_tab(compose_url)
+        if opened:
+            return "Gmail compose window opened in your browser. Log in if prompted, review the message, and press Send."
+        return f"Open this link manually to compose the email: {compose_url}"
+    except Exception as e:
+        return f"Error launching browser automatically ({str(e)}). Open this link manually: {compose_url}"
+
+
 # Define the read_file tool
 READ_FILE_DEFINITION = ToolDefinition(
     name="read_file",
@@ -255,12 +280,37 @@ RENAME_FILE_DEFINITION = ToolDefinition(
 )
 
 
+OPEN_GMAIL_AND_COMPOSE_DEFINITION = ToolDefinition(
+    name="open_gmail_and_compose",
+    description="Open Gmail in a browser, wait for the user to log in, and automatically compose an email with the provided recipient, subject, and body.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "recipient": {
+                "type": "string",
+                "description": "Email address to populate in the compose window."
+            },
+            "subject": {
+                "type": "string",
+                "description": "Optional subject line to insert."
+            },
+            "body": {
+                "type": "string",
+                "description": "Optional body text to type into the message editor."
+            }
+        },
+        "required": ["recipient"]
+    },
+    function=open_gmail_and_compose_tool
+)
+
+
 def main():
     # Configure Gemini with API key
     genai.configure(api_key=settings.GENAI_API_KEY)
 
     # Create the model with tools
-    tools = [READ_FILE_DEFINITION, LIST_FILES_DEFINITION, CREATE_AND_EDIT_FILE_DEFINITION, DELETE_FILE_DEFINITION, RENAME_FILE_DEFINITION]
+    tools = [READ_FILE_DEFINITION, LIST_FILES_DEFINITION, CREATE_AND_EDIT_FILE_DEFINITION, DELETE_FILE_DEFINITION, RENAME_FILE_DEFINITION, OPEN_GMAIL_AND_COMPOSE_DEFINITION]
     model = genai.GenerativeModel('gemini-2.0-flash')
 
     def get_user_message():
