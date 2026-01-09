@@ -1,0 +1,30 @@
+[
+  {
+    "id": "task_001",
+    "category": "File Operations",
+    "prompt": "Create a file named 'hello_world.py' that prints 'Hello from Agent'.",
+    "response": "Error: 400 API key not valid. Please pass a valid API key. [reason: \"API_KEY_INVALID\"\ndomain: \"googleapis.com\"\nmetadata {\n  key: \"service\"\n  value: \"generativelanguage.googleapis.com\"\n}\n, locale: \"en-US\"\nmessage: \"API key not valid. Please pass a valid API key.\"\n]",
+    "status": "failed"
+  },
+  {
+    "id": "task_002",
+    "category": "Code Modification",
+    "prompt": "Read 'hello_world.py' and change the print statement to say 'Hello Research World'.",
+    "response": "Error: 400 API key not valid. Please pass a valid API key. [reason: \"API_KEY_INVALID\"\ndomain: \"googleapis.com\"\nmetadata {\n  key: \"service\"\n  value: \"generativelanguage.googleapis.com\"\n}\n, locale: \"en-US\"\nmessage: \"API key not valid. Please pass a valid API key.\"\n]",
+    "status": "failed"
+  },
+  {
+    "id": "task_003",
+    "category": "Multi-step Reasoning",
+    "prompt": "List the files in the current directory, find any .txt file, and rename it to 'archive_[original_name].bak'.",
+    "response": "Error: 400 API key not valid. Please pass a valid API key. [reason: \"API_KEY_INVALID\"\ndomain: \"googleapis.com\"\nmetadata {\n  key: \"service\"\n  value: \"generativelanguage.googleapis.com\"\n}\n, locale: \"en-US\"\nmessage: \"API key not valid. Please pass a valid API key.\"\n]",
+    "status": "failed"
+  },
+  {
+    "id": "task_004",
+    "category": "Code Generation",
+    "prompt": "Create a python script 'factorial.py' with a recursive function to calculate factorial and test it with input 5.",
+    "response": "Error: 400 API key not valid. Please pass a valid API key. [reason: \"API_KEY_INVALID\"\ndomain: \"googleapis.com\"\nmetadata {\n  key: \"service\"\n  value: \"generativelanguage.googleapis.com\"\n}\n, locale: \"en-US\"\nmessage: \"API key not valid. Please pass a valid API key.\"\n]",
+    "status": "failed"
+  }
+]

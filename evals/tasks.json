@@ -1,0 +1,146 @@
+[
+  {
+    "id": "task_001",
+    "category": "File Operations",
+    "prompt": "Create a file named 'hello_world.py' that prints 'Hello from Agent'.",
+    "expected_output": "hello_world.py exists and contains the correct string."
+  },
+  {
+    "id": "task_002",
+    "category": "Code Modification",
+    "prompt": "Read 'hello_world.py' and change the print statement to say 'Hello Research World'.",
+    "expected_output": "hello_world.py is updated with the new string."
+  },
+  {
+    "id": "task_003",
+    "category": "Multi-step Reasoning",
+    "prompt": "List the files in the current directory, find any .txt file, and rename it to 'archive_[original_name].bak'.",
+    "expected_output": "A .txt file is renamed to .bak."
+  },
+  {
+    "id": "task_004",
+    "category": "Code Generation",
+    "prompt": "Create a python script 'factorial.py' with a recursive function to calculate factorial and test it with input 5.",
+    "expected_output": "factorial.py is created and works correctly."
+  },
+  {
+    "id": "task_005",
+    "category": "Debugging",
+    "prompt": "Create a file 'buggy.py' with a syntax error (e.g., missing colon). Then, identify and fix the error so it runs successfully.",
+    "expected_output": "buggy.py is created, then fixed and runs."
+  },
+  {
+    "id": "task_006",
+    "category": "Refactoring",
+    "prompt": "Create a script 'calculator.py' with long, repetitive functions for add, subtract, multiply. Refactor it to use a single generic function or more concise logic.",
+    "expected_output": "calculator.py is refactored for better maintainability."
+  },
+  {
+    "id": "task_007",
+    "category": "Dependency Management",
+    "prompt": "Add 'requests' and 'pandas' to a new file 'requirements_agent.txt'.",
+    "expected_output": "requirements_agent.txt contains the specified packages."
+  },
+  {
+    "id": "task_008",
+    "category": "Multi-file Operations",
+    "prompt": "Create a directory 'data_backup'. Move all files ending in '.log' from the current directory into 'data_backup'.",
+    "expected_output": ".log files are moved to the new directory."
+  },
+  {
+    "id": "task_009",
+    "category": "Code Synthesis",
+    "prompt": "Write a Python script 'web_fetcher.py' that uses the requests library to fetch the content of 'https://example.com' and saves it to 'example_page.html'.",
+    "expected_output": "web_fetcher.py is created and functional."
+  },
+  {
+    "id": "task_010",
+    "category": "Logic Implementation",
+    "prompt": "Implement a Python script 'sorting.py' that includes a QuickSort algorithm and tests it with a list of 10 random integers.",
+    "expected_output": "sorting.py correctly sorts a random list."
+  },
+  {
+    "id": "task_011",
+    "category": "Security",
+    "prompt": "Scan 'agents.py' for any hardcoded API keys or secrets and report if any are found (do not remove them, just report).",
+    "expected_output": "Agent identifies if secrets are present."
+  },
+  {
+    "id": "task_012",
+    "category": "Documentation",
+    "prompt": "Read 'agents.py' and generate a summary of all available tools and their purposes.",
+    "expected_output": "A clear summary of tools is provided."
+  },
+  {
+    "id": "task_013",
+    "category": "System Check",
+    "prompt": "Determine the current Python version installed on the system using a script.",
+    "expected_output": "Agent reports the correct Python version."
+  },
+  {
+    "id": "task_014",
+    "category": "Data Transformation",
+    "prompt": "Create a JSON file 'users.json' with three user objects. Then, write a script 'json_to_csv.py' that converts this JSON data into 'users.csv'.",
+    "expected_output": "users.csv is created with data from users.json."
+  },
+  {
+    "id": "task_015",
+    "category": "Environment Setup",
+    "prompt": "Create a .env.example file containing placeholders for DATABASE_URL and SECRET_KEY.",
+    "expected_output": ".env.example is created with correct keys."
+  },
+  {
+    "id": "task_016",
+    "category": "Advanced Code Generation",
+    "prompt": "Implement a Python decorator in 'logging_decorator.py' that logs the execution time of any function it decorates.",
+    "expected_output": "logging_decorator.py is functional."
+  },
+  {
+    "id": "task_017",
+    "category": "File Searching",
+    "prompt": "Find all files in the project that contain the string 'Gemini' and list them.",
+    "expected_output": "A list of files containing 'Gemini' is provided."
+  },
+  {
+    "id": "task_018",
+    "category": "Unit Testing",
+    "prompt": "Create a file 'math_utils.py' with basic arithmetic functions. Then, create 'test_math_utils.py' using the unittest framework to test these functions.",
+    "expected_output": "Tests are created and can be executed."
+  },
+  {
+    "id": "task_019",
+    "category": "Refactoring",
+    "prompt": "Identify any large functions in 'agents.py' (over 50 lines) and suggest how to break them down.",
+    "expected_output": "Suggestions for refactoring large functions are provided."
+  },
+  {
+    "id": "task_020",
+    "category": "Cross-Language",
+    "prompt": "Create a simple C++ 'hello.cpp' file and then write a Python script 'compile_run.py' that compiles and runs it using g++.",
+    "expected_output": "C++ code is compiled and executed via Python."
+  },
+  {
+    "id": "task_021",
+    "category": "Data Analysis",
+    "prompt": "Create a CSV file 'sales.csv' with columns: Date, Amount. Write a Python script 'analyze_sales.py' that calculates the total amount.",
+    "expected_output": "Total sales amount is correctly calculated."
+  },
+  {
+    "id": "task_022",
+    "category": "Error Handling",
+    "prompt": "Modify 'agents.py' to add more robust error handling for the 'read_file' tool (e.g., handling binary files).",
+    "expected_output": "Enhanced error handling in agents.py."
+  },
+  {
+    "id": "task_023",
+    "category": "API Integration",
+    "prompt": "Explain how to integrate a new tool into the current Agent class structure in 'agents.py'.",
+    "expected_output": "Detailed explanation of tool integration is provided."
+  },
+  {
+    "id": "task_024",
+    "category": "Performance Optimization",
+    "prompt": "Analyze 'list_files_tool' in 'agents.py' for potential performance issues when dealing with very large directories.",
+    "expected_output": "Performance analysis and potential improvements are documented."
+  }
+]

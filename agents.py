@@ -7,7 +7,7 @@ import os
 import json
 import webbrowser
 from urllib.parse import quote
-import google.generativeai as genai
+from openai import OpenAI
 from typing import Dict, List, Callable, Any
 from django.conf import settings
 
@@ -22,13 +22,21 @@ class ToolDefinition:
 
 def read_file_tool(args: Dict[str, Any]) -> str:
     """Read the contents of a given file path (absolute or relative)."""
+    path = args.get('path', '')
     try:
-        path = args.get('path', '')
         with open(path, 'r', encoding='utf-8') as f:
             content = f.read()
         return content
+    except UnicodeDecodeError:
+        try:
+            # Attempt to read the file in binary mode if it's not a text file
+            with open(path, 'rb') as f:
+                content = f.read()
+            return content.decode('utf-8', errors='replace')  # Attempt to decode, replacing non-decodable bytes
+        except Exception as e:
+            return f"Error reading binary file: {str(e)}"
     except Exception as e:
-        return f"Error reading file: {str(e)}"
+        return f"General error reading file: {str(e)}"
 
 
 def list_files_tool(args: Dict[str, Any]) -> str:
@@ -158,6 +166,26 @@ def rename_file_tool(args: Dict[str, Any]) -> str:
         return f"Error renaming file: {str(e)}"
 
 
+def run_code_tool(args: Dict[str, Any]) -> str:
+    """Execute code in a sandboxed-like environment (local shell)."""
+    import subprocess
+    try:
+        command = args.get('command', '')
+        if not command:
+            return "Error: no command provided"
+        
+        # Security: In a real sandboxed environment, we would restrict commands
+        # For this research project, we allow local execution for testing
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+        
+        output = f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        return output
+    except subprocess.TimeoutExpired:
+        return "Error: Command timed out after 30 seconds"
+    except Exception as e:
+        return f"Error executing code: {str(e)}"
+
+
 def open_gmail_and_compose_tool(args: Dict[str, Any]) -> str:
     recipient = args.get('recipient', '').strip()
     subject = args.get('subject', '')
@@ -280,6 +308,23 @@ RENAME_FILE_DEFINITION = ToolDefinition(
 )
 
 
+RUN_CODE_DEFINITION = ToolDefinition(
+    name="run_code",
+    description="Execute a shell command or run a script (e.g., 'python script.py'). Use this to test code or perform system checks.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "string",
+                "description": "The shell command to execute."
+            }
+        },
+        "required": ["command"]
+    },
+    function=run_code_tool
+)
+
+
 OPEN_GMAIL_AND_COMPOSE_DEFINITION = ToolDefinition(
     name="open_gmail_and_compose",
     description="Open Gmail in a browser, wait for the user to log in, and automatically compose an email with the provided recipient, subject, and body.",
@@ -306,12 +351,20 @@ OPEN_GMAIL_AND_COMPOSE_DEFINITION = ToolDefinition(
 
 
 def main():
-    # Configure Gemini with API key
-    genai.configure(api_key=settings.GENAI_API_KEY)
+    # Configure OpenAI with API key
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
     # Create the model with tools
-    tools = [READ_FILE_DEFINITION, LIST_FILES_DEFINITION, CREATE_AND_EDIT_FILE_DEFINITION, DELETE_FILE_DEFINITION, RENAME_FILE_DEFINITION, OPEN_GMAIL_AND_COMPOSE_DEFINITION]
-    model = genai.GenerativeModel('gemini-2.0-flash')
+    tools = [
+        READ_FILE_DEFINITION, 
+        LIST_FILES_DEFINITION, 
+        CREATE_AND_EDIT_FILE_DEFINITION, 
+        DELETE_FILE_DEFINITION, 
+        RENAME_FILE_DEFINITION, 
+        RUN_CODE_DEFINITION,
+        OPEN_GMAIL_AND_COMPOSE_DEFINITION
+    ]
+    model_name = 'gpt-4o'
 
     def get_user_message():
         try:
@@ -320,7 +373,7 @@ def main():
         except EOFError:
             return "", False
 
-    agent = Agent(model, get_user_message, tools)
+    agent = Agent(client, model_name, get_user_message, tools)
     try:
         agent.run()
     except Exception as e:
@@ -328,15 +381,23 @@ def main():
 
 
 class Agent:
-    def __init__(self, model, get_user_message, tools: List[ToolDefinition]):
-        self.model = model
+    def __init__(self, client, model_name, get_user_message, tools: List[ToolDefinition]):
+        self.client = client
+        self.model_name = model_name
         self.get_user_message = get_user_message
         self.tools = tools
-        self.chat = None  # Store chat instance
         
-        # Initialize tools for Django usage
-        self.gemini_tools = self._convert_tools_to_gemini_format()
-        self.model_with_tools = genai.GenerativeModel('gemini-2.0-flash', tools=self.gemini_tools)
+        # Initialize tools for OpenAI usage
+        self.openai_tools = self._convert_tools_to_openai_format()
+        
+        # System instruction for agentic behavior
+        self.system_instruction = """
+        You are an expert AI software engineer. When performing tasks:
+        1. Always verify the state of the filesystem before and after your actions.
+        2. If a tool returns an error, analyze the cause and try a different approach.
+        3. Use the 'run_code' tool to verify that any code you generate or edit is syntactically correct and performs as expected.
+        4. Be concise but thorough.
+        """
 
     def chat_once(self, conversation_history=None, message=None):
         """
@@ -350,100 +411,91 @@ class Agent:
             String response from the model
         """
         try:
-            # Create a new chat session for each request to avoid state issues
-            chat = self.model_with_tools.start_chat()
+            messages = [
+                {"role": "system", "content": self.system_instruction}
+            ]
             
-            # If we have conversation history, replay it
+            # If we have conversation history, add it
             if conversation_history:
-                for msg in conversation_history[:-1]:  # All but the last message
-                    if msg.get('role') == 'user':
+                for msg in conversation_history:
+                    role = msg.get('role')
+                    content = msg.get('content')
+                    # Convert Gemini-style history if needed
+                    if not content and 'parts' in msg:
                         parts = msg.get('parts', [])
                         if parts and isinstance(parts[0], str):
-                            chat.send_message(parts[0])
-                
-                # Process the latest message
-                latest_msg = conversation_history[-1]
-                if latest_msg.get('role') == 'user':
-                    parts = latest_msg.get('parts', [])
-                    if parts and isinstance(parts[0], str):
-                        message = parts[0]
+                            content = parts[0]
+                    
+                    if role and content:
+                        messages.append({"role": role, "content": content})
             
-            # If no message provided, return error
-            if not message:
-                return "No message provided"
+            # If a new message is provided, append it
+            if message:
+                messages.append({"role": "user", "content": message})
             
             # Send the message and get response
-            response = chat.send_message(message)
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                tools=self.openai_tools,
+                tool_choice="auto"
+            )
             
             # Process the response and return the final text
-            return self._process_response_for_api(response, chat)
+            return self._process_response_for_api(response, messages)
             
         except Exception as e:
             return f"Error: {str(e)}"
     
-    def _process_response_for_api(self, response, chat):
+    def _process_response_for_api(self, response, messages):
         """
         Process response for API usage - returns final text response.
         """
         try:
-            collected_responses = []
+            message = response.choices[0].message
+            messages.append(message)
             
-            # Process the initial response
-            collected_responses.extend(self._handle_single_response(response, chat))
+            responses = []
+            if message.content:
+                responses.append(message.content)
             
-            return "\n".join(collected_responses) if collected_responses else "No response generated"
+            if message.tool_calls:
+                for tool_call in message.tool_calls:
+                    function_name = tool_call.function.name
+                    function_args = json.loads(tool_call.function.arguments)
+                    
+                    # Execute the tool
+                    result = self._execute_tool_by_name(function_name, function_args)
+                    
+                    # Append tool response
+                    messages.append({
+                        "tool_call_id": tool_call.id,
+                        "role": "tool",
+                        "name": function_name,
+                        "content": result,
+                    })
+                
+                # Get follow-up
+                follow_up = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=messages,
+                    tools=self.openai_tools,
+                    tool_choice="auto"
+                )
+                follow_up_text = self._process_response_for_api(follow_up, messages)
+                responses.append(follow_up_text)
+                
+            return "\n".join(responses) if responses else "No response generated"
             
         except Exception as e:
             return f"Error processing response: {str(e)}"
-    
-    def _handle_single_response(self, response, chat):
-        """
-        Handle a single response, executing function calls and collecting text responses.
-        Returns a list of text responses.
-        """
-        responses = []
-        
-        try:
-            if (hasattr(response, 'candidates') and response.candidates and 
-                hasattr(response.candidates[0], 'content') and 
-                hasattr(response.candidates[0].content, 'parts')):
-                
-                candidate = response.candidates[0]
-                function_responses = []
-                
-                for part in candidate.content.parts:
-                    if hasattr(part, 'function_call') and part.function_call:
-                        # Execute the function call and collect response
-                        func_response = self._execute_function_call(part.function_call)
-                        function_responses.append(func_response)
-                    elif hasattr(part, 'text') and part.text:
-                        responses.append(part.text)
-                
-                # If we have function calls, send their responses back and get follow-up
-                if function_responses:
-                    try:
-                        follow_up = chat.send_message(function_responses)
-                        # Recursively process the follow-up response
-                        follow_up_responses = self._handle_single_response(follow_up, chat)
-                        responses.extend(follow_up_responses)
-                    except Exception as e:
-                        responses.append(f"Error processing function response: {str(e)}")
-            
-            elif hasattr(response, 'text'):
-                responses.append(response.text)
-            
-        except Exception as e:
-            responses.append(f"Error handling response: {str(e)}")
-        
-        return responses
 
     def run(self):
-        print("Chat with Gemini (use 'ctrl-c' or type 'quit' to exit)")
+        print("Chat with OpenAI (use 'ctrl-c' or type 'quit' to exit)")
 
-        # Initialize chat with tools
-        gemini_tools = self._convert_tools_to_gemini_format()
-        model_with_tools = genai.GenerativeModel('gemini-2.0-flash', tools=gemini_tools)
-        self.chat = model_with_tools.start_chat()
+        self.messages = [
+            {"role": "system", "content": self.system_instruction}
+        ]
 
         while True:
             print("\033[94mYou\033[0m: ", end="")
@@ -456,8 +508,15 @@ class Agent:
                 print("Goodbye!")
                 break
 
+            self.messages.append({"role": "user", "content": user_input})
+
             try:
-                response = self.chat.send_message(user_input)
+                response = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=self.messages,
+                    tools=self.openai_tools,
+                    tool_choice="auto"
+                )
                 self._process_response_simple(response)
             except Exception as e:
                 print(f"Error: {str(e)}")
@@ -466,136 +525,78 @@ class Agent:
                 print(f"Traceback: {traceback.format_exc()}")
 
     def _process_response_simple(self, response):
-        """Simplified response processing."""
+        """Simplified response processing for OpenAI."""
         try:
-            # Handle function calls first
-            if (hasattr(response, 'candidates') and response.candidates and 
-                hasattr(response.candidates[0], 'content') and 
-                hasattr(response.candidates[0].content, 'parts')):
-                
-                candidate = response.candidates[0]
-                
-                # Process function calls
-                function_responses = []
-                text_parts = []
-                
-                for part in candidate.content.parts:
-                    if hasattr(part, 'function_call') and part.function_call:
-                        # Execute the function call
-                        func_response = self._execute_function_call(part.function_call)
-                        function_responses.append(func_response)
-                    elif hasattr(part, 'text') and part.text:
-                        text_parts.append(part.text)
-                
-                # Print any text response
-                if text_parts:
-                    print(f"\033[93mGemini\033[0m: {''.join(text_parts)}")
-                
-                # If we have function calls, send their responses back
-                if function_responses:
-                    try:
-                        # Send function responses back to continue the conversation
-                        follow_up = self.chat.send_message(function_responses)
-                        # Process the follow-up response recursively
-                        self._process_response_simple(follow_up)
-                            
-                    except Exception as e:
-                        print(f"Error processing function response: {str(e)}")
-                        import traceback
-                        print(f"Traceback: {traceback.format_exc()}")
-            
-            elif hasattr(response, 'text'):
-                print(f"\033[93mGemini\033[0m: {response.text}")
-            else:
-                print(f"\033[93mGemini\033[0m: No response generated")
-                
+            message = response.choices[0].message
+            self.messages.append(message)
+
+            # Handle text response
+            if message.content:
+                print(f"\033[93mOpenAI\033[0m: {message.content}")
+
+            # Handle tool calls
+            if message.tool_calls:
+                for tool_call in message.tool_calls:
+                    function_name = tool_call.function.name
+                    function_args = json.loads(tool_call.function.arguments)
+                    
+                    print(f"\033[92mtool\033[0m: {function_name}({json.dumps(function_args)})")
+                    
+                    # Execute the tool
+                    result = self._execute_tool_by_name(function_name, function_args)
+                    
+                    # Append tool response to messages
+                    self.messages.append({
+                        "tool_call_id": tool_call.id,
+                        "role": "tool",
+                        "name": function_name,
+                        "content": result,
+                    })
+
+                # Get follow-up response from OpenAI
+                try:
+                    follow_up = self.client.chat.completions.create(
+                        model=self.model_name,
+                        messages=self.messages,
+                        tools=self.openai_tools,
+                        tool_choice="auto"
+                    )
+                    self._process_response_simple(follow_up)
+                except Exception as e:
+                    print(f"Error processing follow-up: {str(e)}")
+                    
         except Exception as e:
             print(f"Error processing response: {str(e)}")
             import traceback
             print(f"Traceback: {traceback.format_exc()}")
 
-    def _execute_function_call(self, function_call):
-        """Execute a function call and return the response."""
-        function_name = function_call.name
-        function_args = {}
-
-        # Extract arguments
-        if hasattr(function_call, 'args'):
-            function_args = dict(function_call.args)
-
-        print(f"\033[92mtool\033[0m: {function_name}({json.dumps(function_args)})")
-
-        # Find and execute the tool
-        result = None
+    def _execute_tool_by_name(self, name, args):
+        """Find and execute a tool by name."""
         for tool in self.tools:
-            if tool.name == function_name:
+            if tool.name == name:
                 try:
-                    result = tool.function(function_args)
-                    break
+                    return tool.function(args)
                 except Exception as e:
-                    result = f"Error executing tool: {str(e)}"
-                    break
+                    return f"Error executing tool: {str(e)}"
+        return f"Tool '{name}' not found"
 
-        if result is None:
-            result = f"Tool '{function_name}' not found"
-
-        # Return the function response
-        return genai.protos.Part(
-            function_response=genai.protos.FunctionResponse(
-                name=function_name,
-                response={'result': result}
-            )
-        )
-
-    def _convert_tools_to_gemini_format(self):
-        """Convert tools to Gemini format."""
-        gemini_tools = []
+    def _convert_tools_to_openai_format(self):
+        """Convert tools to OpenAI format."""
+        openai_tools = []
         for tool in self.tools:
-            gemini_tools.append({
-                'function_declarations': [{
-                    'name': tool.name,
-                    'description': tool.description,
-                    'parameters': tool.parameters
-                }]
+            openai_tools.append({
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters
+                }
             })
-        return gemini_tools
-
-    def execute_tool(self, function_call):
-        """Legacy method - kept for compatibility."""
-        function_name = function_call.name
-        function_args = {}
-
-        if hasattr(function_call, 'args'):
-            function_args = dict(function_call.args)
-
-        for tool in self.tools:
-            if tool.name == function_name:
-                try:
-                    result = tool.function(function_args)
-                    return genai.protos.Part(
-                        function_response=genai.protos.FunctionResponse(
-                            name=function_name,
-                            response={'result': result}
-                        )
-                    )
-                except Exception as e:
-                    return genai.protos.Part(
-                        function_response=genai.protos.FunctionResponse(
-                            name=function_name,
-                            response={'error': str(e)}
-                        )
-                    )
-
-        return genai.protos.Part(
-            function_response=genai.protos.FunctionResponse(
-                name=function_name,
-                response={'error': 'Tool not found'}
-            )
-        )
+        return openai_tools
 
     def generate_code(self, task_description: str, language: str = "python", stepwise: bool = True) -> str:
         """
-        Generate complex code using Gemini with advanced prompt engineering.
+        Generate complex code using OpenAI with advanced prompt engineering.
         Args:
             task_description (str): Description of the code to generate.
             language (str): Programming language for the code.
@@ -603,8 +604,6 @@ class Agent:
         Returns:
             str: Generated code.
         """
-        # Configure Gemini API key if not already configured
-        genai.configure(api_key=settings.GENAI_API_KEY)
         if stepwise:
             prompt = (
                 f"""
@@ -620,9 +619,12 @@ class Agent:
             )
         else:
             prompt = f"Write a complete {language} program for the following task: {task_description}"
-        model = genai.GenerativeModel('gemini-2.0-flash')
-        response = model.generate_content(prompt)
-        return response.text.strip()
+        
+        response = self.client.chat.completions.create(
+            model=self.model_name,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.choices[0].message.content.strip()
 
 
 if __name__ == "__main__":

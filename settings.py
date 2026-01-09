@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-GENAI_API_KEY = os.getenv('API_KEY')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 GMAIL_SENDER_ADDRESS = os.getenv('GMAIL_ADDRESS')
 GMAIL_APP_PASSWORD = os.getenv('GMAIL_PASSWORD')
 

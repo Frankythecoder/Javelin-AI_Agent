@@ -6,14 +6,14 @@ import importlib.util
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
-import google.generativeai as genai
+from openai import OpenAI
 from decouple import config
 from django.conf import settings
 
 from agents import RENAME_FILE_DEFINITION
 
-# Configure Gemini API key
-genai.configure(api_key=settings.GENAI_API_KEY)
+# Configure OpenAI client
+client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
 # Function to load agents module from S3 (best-effort) or local fallback
 def load_module_from_s3(bucket_name, s3_key, local_path=None):
@@ -59,10 +59,10 @@ DELETE_FILE_DEFINITION = agents_module.DELETE_FILE_DEFINITION
 RENAME_FILE_DEFINITION = agents_module.RENAME_FILE_DEFINITION
 OPEN_GMAIL_AND_COMPOSE_DEFINITION = agents_module.OPEN_GMAIL_AND_COMPOSE_DEFINITION
 
-# Initialize Gemini agent
+# Initialize OpenAI agent
 tools = [READ_FILE_DEFINITION, LIST_FILES_DEFINITION, CREATE_AND_EDIT_FILE_DEFINITION, DELETE_FILE_DEFINITION, RENAME_FILE_DEFINITION, OPEN_GMAIL_AND_COMPOSE_DEFINITION]
-model = genai.GenerativeModel('gemini-2.0-flash')
-agent = Agent(model, get_user_message=None, tools=tools)
+model_name = 'gpt-4o'
+agent = Agent(client, model_name, get_user_message=None, tools=tools)
 
 def chat_page(request):
     return render(request, 'chat/index.html')
