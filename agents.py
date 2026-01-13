@@ -33,7 +33,7 @@ def read_file_tool(args: Dict[str, Any]) -> str:
     """Read the contents of a given file path (absolute or relative)."""
     path = args.get('path', '')
     try:
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
         return content
     except UnicodeDecodeError:
