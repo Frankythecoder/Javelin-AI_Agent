@@ -6,6 +6,15 @@
 import os
 import json
 import webbrowser
+import imaplib
+import time
+import re
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
+from email.utils import formatdate, make_msgid
+from email.policy import SMTP
 from urllib.parse import quote
 from openai import OpenAI
 from typing import Dict, List, Callable, Any
@@ -186,12 +195,136 @@ def run_code_tool(args: Dict[str, Any]) -> str:
         return f"Error executing code: {str(e)}"
 
 
+def create_gmail_draft(recipient: str, subject: str, body: str, attachments: List[str]) -> str:
+    """Create a draft in Gmail via IMAP."""
+    user = getattr(settings, 'GMAIL_SENDER_ADDRESS', None)
+    password = getattr(settings, 'GMAIL_APP_PASSWORD', None)
+
+    if not user or not password:
+        return "Error: GMAIL_SENDER_ADDRESS or GMAIL_APP_PASSWORD not configured in settings."
+
+    try:
+        # Create message with robust structure
+        msg = MIMEMultipart('mixed')
+        msg['To'] = recipient
+        msg['From'] = user
+        msg['Subject'] = subject
+        msg['Date'] = formatdate(localtime=True)
+        msg['Message-ID'] = make_msgid()
+        
+        # Create the body container (multipart/alternative)
+        body_part = MIMEMultipart('alternative')
+        
+        # Add plain text version
+        body_part.attach(MIMEText(body, 'plain'))
+        
+        # Add HTML version (simple conversion)
+        html_body = body.replace('\n', '<br>')
+        body_part.attach(MIMEText(f"<html><body>{html_body}</body></html>", 'html'))
+        
+        # Attach body container to the main message
+        msg.attach(body_part)
+
+        for path in attachments:
+            if os.path.exists(path):
+                filename = os.path.basename(path)
+                part = MIMEBase('application', "octet-stream")
+                try:
+                    with open(path, 'rb') as file:
+                        part.set_payload(file.read())
+                    encoders.encode_base64(part)
+                    part.add_header('Content-Disposition', f'attachment; filename="{filename}"')
+                    msg.attach(part)
+                except Exception as file_err:
+                    return f"Error reading attachment {path}: {str(file_err)}"
+            else:
+                return f"Error: Attachment file not found at {path}"
+
+        # Connect to Gmail IMAP
+        try:
+            imap = imaplib.IMAP4_SSL("imap.gmail.com")
+            imap.login(user, password)
+        except imaplib.IMAP4.error as auth_err:
+            return f"Authentication failed. Please ensure: 1. Your GMAIL_PASSWORD in .env is a 16-character App Password. 2. IMAP is enabled. Original error: {str(auth_err)}"
+        except Exception as conn_err:
+            return f"Failed to connect to Gmail IMAP: {str(conn_err)}"
+
+        # Try to find the Drafts folder
+        status, folders = imap.list()
+        draft_folder = None
+        if status == 'OK':
+            for folder in folders:
+                folder_str = folder.decode('utf-8')
+                # Gmail drafts folder has the \Drafts attribute
+                if '\\Drafts' in folder_str:
+                    # The folder name is usually the last quoted string
+                    matches = re.findall(r'"([^"]+)"', folder_str)
+                    if matches:
+                        draft_folder = matches[-1]
+                    break
+        
+        if not draft_folder:
+            # Fallback for some configurations
+            draft_folder = "[Gmail]/Drafts"
+
+        # Append to drafts
+        try:
+            # Ensure draft_folder is quoted if it contains spaces or special characters
+            quoted_folder = draft_folder
+            if not draft_folder.startswith('"') and any(c in draft_folder for c in ' []/'):
+                quoted_folder = f'"{draft_folder}"'
+
+            # Use CRLF for line endings as required by IMAP
+            msg_bytes = msg.as_bytes(policy=SMTP)
+            res, detail = imap.append(quoted_folder, r'(\Draft)', imaplib.Time2Internaldate(time.time()), msg_bytes)
+            if res != 'OK':
+                return f"IMAP APPEND failed: {res} - {str(detail)}"
+        except Exception as append_err:
+            return f"Exception during IMAP APPEND to '{draft_folder}': {str(append_err)}"
+            
+        imap.logout()
+        return "OK"
+    except Exception as e:
+        return f"Error creating draft: {str(e)}"
+
+
 def open_gmail_and_compose_tool(args: Dict[str, Any]) -> str:
     recipient = args.get('recipient', '').strip()
     subject = args.get('subject', '')
     body = args.get('body', '')
+    attachments = args.get('attachments', [])
     if not recipient:
         return "Error: recipient is required"
+
+    if isinstance(attachments, str):
+        attachments = [attachments]
+
+    # If there are attachments, we create a draft via IMAP because web URL doesn't support them
+    if attachments:
+        draft_result = create_gmail_draft(recipient, subject, body, attachments)
+        if draft_result == "OK":
+            drafts_url = "https://mail.google.com/mail/#drafts"
+            try:
+                webbrowser.open_new_tab(drafts_url)
+                return f"A draft with the attachments has been created in your Gmail Drafts. I've opened your Drafts folder in the browser. Please review and send it."
+            except:
+                return f"A draft with the attachments has been created in your Gmail Drafts. Please open {drafts_url} to review and send it."
+        else:
+            # If draft fails, we still want to open the compose window as a fallback
+            fallback_msg = f"Failed to create draft with attachments: {draft_result}."
+            
+            query = [f"to={quote(recipient)}"]
+            if subject:
+                query.append(f"su={quote(subject)}")
+            if body:
+                query.append(f"body={quote(body)}")
+            compose_url = "https://mail.google.com/mail/?view=cm&fs=1&tf=1&" + "&".join(query)
+            
+            try:
+                webbrowser.open_new_tab(compose_url)
+                return f"{fallback_msg} I've opened the standard compose window for you instead. Please attach the files manually and send."
+            except:
+                return f"{fallback_msg} Please open this link to compose manually: {compose_url}"
 
     query = [f"to={quote(recipient)}"]
     if subject:
@@ -327,7 +460,7 @@ RUN_CODE_DEFINITION = ToolDefinition(
 
 OPEN_GMAIL_AND_COMPOSE_DEFINITION = ToolDefinition(
     name="open_gmail_and_compose",
-    description="Open Gmail in a browser, wait for the user to log in, and automatically compose an email with the provided recipient, subject, and body.",
+    description="Open Gmail in a browser and compose an email. If attachments are provided, a draft will be created automatically for you to review and send.",
     parameters={
         "type": "object",
         "properties": {
@@ -342,6 +475,13 @@ OPEN_GMAIL_AND_COMPOSE_DEFINITION = ToolDefinition(
             "body": {
                 "type": "string",
                 "description": "Optional body text to type into the message editor."
+            },
+            "attachments": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                },
+                "description": "List of absolute or relative file paths to be attached automatically via a draft. You have access to the entire filesystem."
             }
         },
         "required": ["recipient"]
@@ -397,6 +537,7 @@ class Agent:
         2. If a tool returns an error, analyze the cause and try a different approach.
         3. Use the 'run_code' tool to verify that any code you generate or edit is syntactically correct and performs as expected.
         4. Be concise but thorough.
+        5. You have FULL ACCESS to the local filesystem using absolute or relative paths. Do not claim you cannot access or retrieve files; instead, use the provided tools (like 'read_file', 'list_files', or specifying paths in tool arguments) to interact with them.
         """
 
     def chat_once(self, conversation_history=None, message=None):
