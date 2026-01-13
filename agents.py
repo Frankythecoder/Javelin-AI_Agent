@@ -289,6 +289,7 @@ def create_gmail_draft(recipient: str, subject: str, body: str, attachments: Lis
 
 
 def open_gmail_and_compose_tool(args: Dict[str, Any]) -> str:
+    user = getattr(settings, 'GMAIL_SENDER_ADDRESS', '')
     recipient = args.get('recipient', '').strip()
     subject = args.get('subject', '')
     body = args.get('body', '')
@@ -299,16 +300,19 @@ def open_gmail_and_compose_tool(args: Dict[str, Any]) -> str:
     if isinstance(attachments, str):
         attachments = [attachments]
 
+    # Use user-specific URL if available
+    base_url = f"https://mail.google.com/mail/u/{user}/" if user else "https://mail.google.com/mail/"
+
     # If there are attachments, we create a draft via IMAP because web URL doesn't support them
     if attachments:
         draft_result = create_gmail_draft(recipient, subject, body, attachments)
         if draft_result == "OK":
-            drafts_url = "https://mail.google.com/mail/#drafts"
+            drafts_url = f"{base_url}#drafts"
             try:
                 webbrowser.open_new_tab(drafts_url)
-                return f"A draft with the attachments has been created in your Gmail Drafts. I've opened your Drafts folder in the browser. Please review and send it."
+                return f"A draft with the attachments has been created in your Gmail Drafts ({user}). I've opened your Drafts folder in the browser. Please review and send it."
             except:
-                return f"A draft with the attachments has been created in your Gmail Drafts. Please open {drafts_url} to review and send it."
+                return f"A draft with the attachments has been created in your Gmail Drafts ({user}). Please open {drafts_url} to review and send it."
         else:
             # If draft fails, we still want to open the compose window as a fallback
             fallback_msg = f"Failed to create draft with attachments: {draft_result}."
@@ -318,7 +322,7 @@ def open_gmail_and_compose_tool(args: Dict[str, Any]) -> str:
                 query.append(f"su={quote(subject)}")
             if body:
                 query.append(f"body={quote(body)}")
-            compose_url = "https://mail.google.com/mail/?view=cm&fs=1&tf=1&" + "&".join(query)
+            compose_url = f"{base_url}?view=cm&fs=1&tf=1&" + "&".join(query)
             
             try:
                 webbrowser.open_new_tab(compose_url)
@@ -331,12 +335,12 @@ def open_gmail_and_compose_tool(args: Dict[str, Any]) -> str:
         query.append(f"su={quote(subject)}")
     if body:
         query.append(f"body={quote(body)}")
-    compose_url = "https://mail.google.com/mail/?view=cm&fs=1&tf=1&" + "&".join(query)
+    compose_url = f"{base_url}?view=cm&fs=1&tf=1&" + "&".join(query)
 
     try:
         opened = webbrowser.open_new_tab(compose_url)
         if opened:
-            return "Gmail compose window opened in your browser. Log in if prompted, review the message, and press Send."
+            return f"Gmail compose window for {user} opened in your browser. Log in if prompted, review the message, and press Send."
         return f"Open this link manually to compose the email: {compose_url}"
     except Exception as e:
         return f"Error launching browser automatically ({str(e)}). Open this link manually: {compose_url}"
