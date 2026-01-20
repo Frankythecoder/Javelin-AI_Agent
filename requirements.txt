@@ -1,0 +1,7 @@
+Django
+python-decouple
+python-dotenv
+openai
+boto3
+django-storages
+pygame
