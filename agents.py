@@ -176,23 +176,45 @@ def rename_file_tool(args: Dict[str, Any]) -> str:
 
 
 def run_code_tool(args: Dict[str, Any]) -> str:
-    """Execute code in a sandboxed-like environment (local shell)."""
+    """Execute code in a secure Docker container."""
     import subprocess
+    import os
     try:
         command = args.get('command', '')
         if not command:
             return "Error: no command provided"
         
-        # Security: In a real sandboxed environment, we would restrict commands
-        # For this research project, we allow local execution for testing
-        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+        # Current working directory to mount into the container
+        current_dir = os.getcwd()
+
+        # Build the Docker command
+        # --rm: Automatically remove the container when it exits
+        # -v: Mount your local code into the container's /workspace
+        # --network none: Disable internet access (optional, for extra security)
+        # --memory="512m": Limit RAM usage
+        docker_command = [
+            "docker", "run", "--rm",
+            "-v", f"{current_dir}:/workspace",
+            "--memory", "512m",
+            "--cpus", "0.5",
+            "ai-agent-sandbox",
+            "sh", "-c", command
+        ]
+
+        result = subprocess.run(
+            docker_command, 
+            capture_output=True, 
+            text=True, 
+            timeout=30
+        )
         
         output = f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
         return output
     except subprocess.TimeoutExpired:
         return "Error: Command timed out after 30 seconds"
     except Exception as e:
-        return f"Error executing code: {str(e)}"
+        return f"Error executing code in sandbox: {str(e)}"
+
 
 
 def create_gmail_draft(recipient: str, subject: str, body: str, attachments: List[str]) -> str:

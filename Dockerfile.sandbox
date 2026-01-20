@@ -1,0 +1,14 @@
+# Use a lightweight Python image
+FROM python:3.11-slim
+
+# Install basic system utilities the agent might need
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set the working directory inside the container
+WORKDIR /workspace
+
+# Pre-install common libraries to save time during execution
+RUN pip install pandas requests numpy
