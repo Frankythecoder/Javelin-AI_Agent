@@ -21,8 +21,21 @@ if not settings.configured:
         INSTALLED_APPS=[],
     )
     django.setup()
+    
+from utils import load_module_from_s3
 
-from agents import Agent, READ_FILE_DEFINITION, LIST_FILES_DEFINITION, CREATE_AND_EDIT_FILE_DEFINITION, DELETE_FILE_DEFINITION, RENAME_FILE_DEFINITION, RUN_CODE_DEFINITION
+# Load Agent and tools dynamically
+bucket_name = os.getenv('AWS_STORAGE_BUCKET_NAME')
+s3_key = 'ai_agent/agents.py'
+agents_module = load_module_from_s3(bucket_name, s3_key)
+
+Agent = agents_module.Agent
+READ_FILE_DEFINITION = agents_module.READ_FILE_DEFINITION
+LIST_FILES_DEFINITION = agents_module.LIST_FILES_DEFINITION
+CREATE_AND_EDIT_FILE_DEFINITION = agents_module.CREATE_AND_EDIT_FILE_DEFINITION
+DELETE_FILE_DEFINITION = agents_module.DELETE_FILE_DEFINITION
+RENAME_FILE_DEFINITION = agents_module.RENAME_FILE_DEFINITION
+RUN_CODE_DEFINITION = agents_module.RUN_CODE_DEFINITION
 
 def run_evals(output_file='results.json'):
     # Load tasks
