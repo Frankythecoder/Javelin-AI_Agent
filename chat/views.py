@@ -38,13 +38,47 @@ def chat_api(request):
         try:
             data = json.loads(request.body)
             user_message = data.get('message', '')
+            history = data.get('history', [])
+            status = data.get('status')
+            
+            if status == 'approved':
+                pending_tools = data.get('pending_tools', [])
+                for tool_call in pending_tools:
+                    # Execute tool and get result
+                    result = agent._execute_tool_by_name(tool_call.get('name'), tool_call.get('arguments'))
+                    # Append tool result to history
+                    history.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.get('id'),
+                        "name": tool_call.get('name'),
+                        "content": result
+                    })
+                # Continue chat with the updated history
+                response_data = agent.chat_once(conversation_history=history)
+                return JsonResponse(response_data)
+            
+            elif status == 'denied':
+                # User denied the tool calls
+                pending_tools = data.get('pending_tools', [])
+                for tool_call in pending_tools:
+                    history.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.get('id'),
+                        "name": tool_call.get('name'),
+                        "content": "User denied this tool call."
+                    })
+                response_data = agent.chat_once(conversation_history=history)
+                return JsonResponse(response_data)
+
+            if not user_message and not status:
+                return JsonResponse({'error': 'No message provided'}, status=400)
+
+            response_data = agent.chat_once(conversation_history=history, message=user_message)
+            return JsonResponse(response_data)
+
         except json.JSONDecodeError:
             return JsonResponse({'error': 'Invalid JSON'}, status=400)
-
-        if not user_message:
-            return JsonResponse({'error': 'No message provided'}, status=400)
-
-        response_text = agent.chat_once(message=user_message)
-        return JsonResponse({'response': response_text})
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
 
     return JsonResponse({'error': 'Invalid request'}, status=405)

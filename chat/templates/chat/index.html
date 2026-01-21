@@ -292,6 +292,20 @@
                 opacity: 1;
             }
         }
+
+        .approval-container {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn-approve {
+            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+        }
+
+        .btn-deny {
+            background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%);
+        }
     </style>
 </head>
 <body>
@@ -324,8 +338,10 @@
         const chatForm = document.getElementById('chat-form');
         const messageInput = document.getElementById('message');
         const typingIndicator = document.getElementById('typing-indicator');
+        
+        let conversationHistory = [];
 
-        function appendMessage(sender, text) {
+        function appendMessage(sender, text, isPending = false, pendingTools = null) {
             const div = document.createElement('div');
             div.classList.add('message');
             div.classList.add(sender);
@@ -334,9 +350,70 @@
             bubble.classList.add('message-bubble');
             bubble.textContent = text;
             
+            if (isPending && pendingTools) {
+                const approvalDiv = document.createElement('div');
+                approvalDiv.classList.add('approval-container');
+                
+                const approveBtn = document.createElement('button');
+                approveBtn.textContent = 'Approve All';
+                approveBtn.classList.add('btn-approve');
+                approveBtn.onclick = () => sendApproval('approved', pendingTools, div);
+                
+                const denyBtn = document.createElement('button');
+                denyBtn.textContent = 'Deny All';
+                denyBtn.classList.add('btn-deny');
+                denyBtn.onclick = () => sendApproval('denied', pendingTools, div);
+                
+                approvalDiv.appendChild(approveBtn);
+                approvalDiv.appendChild(denyBtn);
+                bubble.appendChild(approvalDiv);
+                
+                // Also list the tools
+                const list = document.createElement('ul');
+                list.style.marginTop = '10px';
+                list.style.fontSize = '0.85rem';
+                pendingTools.forEach(tool => {
+                    const item = document.createElement('li');
+                    item.textContent = `${tool.name}: ${JSON.stringify(tool.arguments)}`;
+                    list.appendChild(item);
+                });
+                bubble.appendChild(list);
+            }
+            
             div.appendChild(bubble);
             chatbox.appendChild(div);
             chatbox.scrollTop = chatbox.scrollHeight;
+        }
+
+        async function sendApproval(status, pendingTools, messageDiv) {
+            // Remove approval UI
+            const approvalContainer = messageDiv.querySelector('.approval-container');
+            if (approvalContainer) approvalContainer.remove();
+            const list = messageDiv.querySelector('ul');
+            if (list) list.remove();
+            
+            showTypingIndicator();
+            
+            try {
+                const response = await fetch('/api/chat/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        status: status,
+                        pending_tools: pendingTools,
+                        history: conversationHistory
+                    })
+                });
+
+                const data = await response.json();
+                handleResponse(data);
+            } catch (error) {
+                hideTypingIndicator();
+                appendMessage('agent', 'Error sending approval.');
+                console.error('Approval failed', error);
+            }
         }
 
         function showTypingIndicator() {
@@ -346,6 +423,24 @@
 
         function hideTypingIndicator() {
             typingIndicator.style.display = 'none';
+        }
+
+        function handleResponse(data) {
+            hideTypingIndicator();
+            
+            if (data.history) {
+                conversationHistory = data.history;
+            }
+            
+            if (data.status === 'pending') {
+                appendMessage('agent', data.response, true, data.pending_tools);
+            } else if (data.response) {
+                appendMessage('agent', data.response);
+            } else if (data.error) {
+                appendMessage('agent', `Error: ${data.error}`);
+            } else if (data.message) {
+                appendMessage('agent', `Error: ${data.message}`);
+            }
         }
 
         chatForm.addEventListener('submit', async (e) => {
@@ -363,17 +458,14 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ message: message })
+                    body: JSON.stringify({ 
+                        message: message,
+                        history: conversationHistory
+                    })
                 });
 
                 const data = await response.json();
-                hideTypingIndicator();
-                
-                if (data.response) {
-                    appendMessage('agent', data.response);
-                } else if (data.error) {
-                    appendMessage('agent', `Error: ${data.error}`);
-                }
+                handleResponse(data);
             } catch (error) {
                 hideTypingIndicator();
                 appendMessage('agent', 'Error sending request.');

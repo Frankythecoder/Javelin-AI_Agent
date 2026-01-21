@@ -24,11 +24,12 @@ from django.conf import settings
 
 
 class ToolDefinition:
-    def __init__(self, name: str, description: str, parameters: Dict[str, Any], function: Callable[[Dict[str, Any]], str]):
+    def __init__(self, name: str, description: str, parameters: Dict[str, Any], function: Callable[[Dict[str, Any]], str], requires_approval: bool = False):
         self.name = name
         self.description = description
         self.parameters = parameters
         self.function = function
+        self.requires_approval = requires_approval
 
 
 def read_file_tool(args: Dict[str, Any]) -> str:
@@ -522,7 +523,8 @@ DELETE_FILE_DEFINITION = ToolDefinition(
         },
         "required": ["path"]
     },
-    function=delete_file_tool
+    function=delete_file_tool,
+    requires_approval=True
 )
 
 
@@ -548,7 +550,8 @@ CREATE_AND_EDIT_FILE_DEFINITION = ToolDefinition(
         },
         "required": ["path", "old_str", "new_str"]
     },
-    function=create_and_edit_file_tool
+    function=create_and_edit_file_tool,
+    requires_approval=True
 )
 
 
@@ -569,7 +572,8 @@ RENAME_FILE_DEFINITION = ToolDefinition(
         },
         "required": ["old_path", "new_path"]
     },
-    function=rename_file_tool
+    function=rename_file_tool,
+    requires_approval=True
 )
 
 
@@ -586,7 +590,8 @@ RUN_CODE_DEFINITION = ToolDefinition(
         },
         "required": ["command"]
     },
-    function=run_code_tool
+    function=run_code_tool,
+    requires_approval=True
 )
 
 
@@ -671,8 +676,9 @@ class Agent:
         3. Use the 'run_code' tool to verify that any code you generate or edit is syntactically correct and performs as expected.
         4. Be concise but thorough.
         5. You have FULL ACCESS to the local filesystem using absolute or relative paths. Do not claim you cannot access or retrieve files; instead, use the provided tools (like 'read_file', 'list_files', or specifying paths in tool arguments) to interact with them.
-        6. Do not ask for permission to perform an action; just execute the necessary steps to complete the task.
-        7. In your final summary, avoid using the words "Error" or "Exception" if the task was completed successfully, as these words are used for automated failure detection. Use words like "issue", "problem", or "fault" if you must refer to them.
+        6. Always prioritize the current working directory ('.') for all tool operations unless the user explicitly specifies a different path for the current task. Do not assume previous paths from history apply to new, unrelated tasks.
+        7. Do not ask for permission to perform an action; just execute the necessary steps to complete the task.
+        8. In your final summary, avoid using the words "Error" or "Exception" if the task was completed successfully, as these words are used for automated failure detection. Use words like "issue", "problem", or "fault" if you must refer to them.
         """
 
     def chat_once(self, conversation_history=None, message=None):
@@ -684,7 +690,7 @@ class Agent:
             message: Single message string to process
             
         Returns:
-            String response from the model
+            Dict containing status and response/tool info
         """
         try:
             messages = [
@@ -695,15 +701,23 @@ class Agent:
             if conversation_history:
                 for msg in conversation_history:
                     role = msg.get('role')
+                    # Skip existing system messages in history to avoid duplication
+                    if role == 'system':
+                        continue
+                        
                     content = msg.get('content')
-                    # Convert Gemini-style history if needed
-                    if not content and 'parts' in msg:
-                        parts = msg.get('parts', [])
-                        if parts and isinstance(parts[0], str):
-                            content = parts[0]
+                    tool_calls = msg.get('tool_calls')
+                    tool_call_id = msg.get('tool_call_id')
+                    name = msg.get('name')
                     
-                    if role and content:
-                        messages.append({"role": role, "content": content})
+                    # Construct message dict based on what's available
+                    msg_dict = {"role": role}
+                    if content is not None: msg_dict["content"] = content
+                    if tool_calls: msg_dict["tool_calls"] = tool_calls
+                    if tool_call_id: msg_dict["tool_call_id"] = tool_call_id
+                    if name: msg_dict["name"] = name
+                    
+                    messages.append(msg_dict)
             
             # If a new message is provided, append it
             if message:
@@ -721,50 +735,76 @@ class Agent:
             return self._process_response_for_api(response, messages)
             
         except Exception as e:
-            return f"Error: {str(e)}"
+            return {"status": "error", "message": str(e)}
     
     def _process_response_for_api(self, response, messages):
         """
-        Process response for API usage - returns final text response.
+        Process response for API usage - returns structured response.
         """
         try:
             message = response.choices[0].message
-            messages.append(message)
             
-            responses = []
-            if message.content:
-                responses.append(message.content)
+            # Convert message to dict for storage/history
+            message_dict = {"role": "assistant", "content": message.content}
+            if message.tool_calls:
+                message_dict["tool_calls"] = [
+                    {
+                        "id": tc.id,
+                        "type": tc.type,
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments
+                        }
+                    } for tc in message.tool_calls
+                ]
+            
+            messages.append(message_dict)
             
             if message.tool_calls:
+                pending_tools = []
                 for tool_call in message.tool_calls:
                     function_name = tool_call.function.name
                     function_args = json.loads(tool_call.function.arguments)
                     
-                    # Execute the tool
-                    result = self._execute_tool_by_name(function_name, function_args)
-                    
-                    # Append tool response
-                    messages.append({
-                        "tool_call_id": tool_call.id,
-                        "role": "tool",
-                        "name": function_name,
-                        "content": result,
-                    })
+                    # Check if tool requires approval
+                    tool_def = next((t for t in self.tools if t.name == function_name), None)
+                    if tool_def and tool_def.requires_approval:
+                        pending_tools.append({
+                            "id": tool_call.id,
+                            "name": function_name,
+                            "arguments": function_args
+                        })
+                    else:
+                        # Execute the tool immediately if it doesn't require approval
+                        result = self._execute_tool_by_name(function_name, function_args)
+                        messages.append({
+                            "tool_call_id": tool_call.id,
+                            "role": "tool",
+                            "name": function_name,
+                            "content": result,
+                        })
                 
-                # Get follow-up
+                if pending_tools:
+                    return {
+                        "status": "pending",
+                        "pending_tools": pending_tools,
+                        "response": message.content or "I need your approval to perform the following actions:",
+                        "history": messages
+                    }
+                
+                # If all tools were executed (none were pending), get follow-up
                 follow_up = self.client.chat.completions.create(
                     model=self.model_name,
                     messages=self._trim_messages(messages),
                     tools=self.openai_tools,
                     tool_choice="auto"
                 )
-                follow_up_text = self._process_response_for_api(follow_up, messages)
-                responses.append(follow_up_text)
+                return self._process_response_for_api(follow_up, messages)
                 
-            return "\n".join(responses) if responses else "No response generated"
+            return {"status": "success", "response": message.content or "No response generated", "history": messages}
             
         except Exception as e:
-            return f"Error processing response: {str(e)}"
+            return {"status": "error", "message": f"Error processing response: {str(e)}"}
 
     def run(self):
         print("Chat with OpenAI (use 'ctrl-c' or type 'quit' to exit)")
@@ -873,7 +913,7 @@ class Agent:
     def _trim_messages(self, messages: List[Any]) -> List[Any]:
         """
         Trim message history to stay within token limits.
-        Keeps the system message and the most recent max_history messages.
+        Keeps the system message and ensures tool messages are not separated from their tool_calls.
         """
         if len(messages) <= self.max_history + 1:
             return messages
@@ -881,7 +921,14 @@ class Agent:
         system_message = messages[0] if messages[0].get("role") == "system" else None
         
         # Keep the most recent messages
-        recent_messages = messages[-(self.max_history):]
+        start_index = len(messages) - self.max_history
+        
+        # Ensure we don't start in the middle of a tool response sequence
+        # A 'tool' role message MUST be preceded by an 'assistant' message with 'tool_calls'
+        while start_index > 1 and messages[start_index].get("role") == "tool":
+            start_index -= 1
+            
+        recent_messages = messages[start_index:]
         
         trimmed = []
         if system_message:
