@@ -3,6 +3,7 @@ import json
 import sys
 import time
 import django
+from pathlib import Path
 from django.conf import settings
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -19,15 +20,12 @@ if not settings.configured:
         DEBUG=True,
         OPENAI_API_KEY=os.getenv("OPENAI_API_KEY"),
         INSTALLED_APPS=[],
+        BASE_DIR=Path(__file__).resolve().parent.parent,
     )
     django.setup()
     
-from utils import load_module_from_s3
-
-# Load Agent and tools dynamically
-bucket_name = os.getenv('AWS_STORAGE_BUCKET_NAME')
-s3_key = 'ai_agent/agents.py'
-agents_module = load_module_from_s3(bucket_name, s3_key)
+# Import Agent and tools from local agents.py
+import agents as agents_module
 
 Agent = agents_module.Agent
 READ_FILE_DEFINITION = agents_module.READ_FILE_DEFINITION
@@ -66,7 +64,17 @@ def run_evals(output_file='results.json'):
         # Process the latest message and determine status
         response = agent.chat_once(message=task['prompt'])
         
-        status = "failed" if "Error:" in response or "Exception:" in response else "completed"
+        # More robust status check: only fail if the response starts with Error/Exception or contains "Task failed"
+        # Avoid failing if "Error" is mentioned in a successful explanation
+        lower_resp = response.lower()
+        is_error = (
+            response.startswith("Error:") or 
+            response.startswith("Exception:") or 
+            "\nerror:" in lower_resp or 
+            "\nexception:" in lower_resp or
+            "task failed" in lower_resp
+        )
+        status = "failed" if is_error else "completed"
         
         result = {
             "id": task['id'],

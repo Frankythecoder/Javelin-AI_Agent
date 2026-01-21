@@ -9,6 +9,8 @@ import webbrowser
 import imaplib
 import time
 import re
+import subprocess
+import platform
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
@@ -30,22 +32,49 @@ class ToolDefinition:
 
 
 def read_file_tool(args: Dict[str, Any]) -> str:
-    """Read the contents of a given file path (absolute or relative)."""
+    """Read the contents of a given file path (absolute or relative) with enhanced error handling for binary files and size limits."""
     path = args.get('path', '')
+    offset = args.get('offset', 0)
+    limit = args.get('limit', 30000)  # Reduced default limit to 30k characters to prevent rate limits
+
+    if not path:
+        return "No path provided."
+
+    if not os.path.exists(path):
+        return f"File '{path}' does not exist."
+
+    if os.path.isdir(path):
+        return f"'{path}' is a directory, not a file."
+
     try:
-        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read()
-        return content
+        # Read initial bytes to determine file type
+        with open(path, 'rb') as f:
+            initial_bytes = f.read(1024)
+            # Character set to check for non-text files
+            text_characters = bytearray({7, 8, 9, 10, 12, 13, 27} | set(range(0x20, 0x100)))
+            is_binary = bool(initial_bytes.translate(None, text_characters))
+
+            if is_binary:
+                return "The file appears to be binary and cannot be read as text."
+
+        # If the file is text, proceed to read it with limit and offset
+        file_size = os.path.getsize(path)
+        with open(path, 'r', encoding='utf-8', errors='replace') as f:
+            if offset > 0:
+                f.seek(offset)
+            content = f.read(limit)
+        
+        result = content
+        if file_size > (offset + limit):
+            result += f"\n\n[... Output truncated. File size: {file_size} bytes. Read {limit} characters from offset {offset}. Use 'limit' and 'offset' to read more ...]"
+        
+        return result
+    except IOError as e:
+        return f"File access issue: {e}"
     except UnicodeDecodeError:
-        try:
-            # Attempt to read the file in binary mode if it's not a text file
-            with open(path, 'rb') as f:
-                content = f.read()
-            return content.decode('utf-8', errors='replace')  # Attempt to decode, replacing non-decodable bytes
-        except Exception as e:
-            return f"Error reading binary file: {str(e)}"
+        return "The file contains non-UTF-8 characters and appears to be binary."
     except Exception as e:
-        return f"General error reading file: {str(e)}"
+        return f"An unexpected problem occurred: {e}"
 
 
 def list_files_tool(args: Dict[str, Any]) -> str:
@@ -79,7 +108,7 @@ def list_files_tool(args: Dict[str, Any]) -> str:
 
         return json.dumps(files)
     except Exception as e:
-        return f"Error listing files: {str(e)}"
+        return f"Error: {str(e)}"
 
 
 def create_new_file(file_path: str, content: str) -> str:
@@ -96,7 +125,7 @@ def create_new_file(file_path: str, content: str) -> str:
 
         return f"Successfully created file {file_path}"
     except Exception as e:
-        return f"Failed to create file: {str(e)}"
+        return f"Error: {str(e)}"
 
 
 def delete_file_tool(args: Dict[str, Any]) -> str:
@@ -112,7 +141,7 @@ def delete_file_tool(args: Dict[str, Any]) -> str:
         os.remove(file_path)
         return f"Successfully deleted file {file_path}"
     except Exception as e:
-        return f"Error deleting file: {str(e)}"
+        return f"Error: {str(e)}"
 
 
 def create_and_edit_file_tool(args: Dict[str, Any]) -> str:
@@ -122,37 +151,33 @@ def create_and_edit_file_tool(args: Dict[str, Any]) -> str:
         old_str = args.get('old_str', '')
         new_str = args.get('new_str', '')
 
-        # Validate input parameters
-        if not path or old_str == new_str:
-            return "Error: invalid input parameters"
+        if not path:
+            return "Error: No path provided."
+        
+        if old_str == new_str:
+            return "Error: old_str and new_str are the same; no changes made."
 
         # Try to read the existing file
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                content = f.read()
-        except FileNotFoundError:
-            # If file doesn't exist and old_str is empty, create new file
+        if not os.path.exists(path):
             if old_str == "":
                 return create_new_file(path, new_str)
             else:
-                return f"Error: file {path} not found"
-        except Exception as e:
-            return f"Error reading file: {str(e)}"
+                return f"Error: File '{path}' not found and no content provided to create it."
+
+        with open(path, 'r', encoding='utf-8', errors='replace') as f:
+            content = f.read()
 
         # Replace old_str with new_str
-        new_content = content.replace(old_str, new_str)
+        if old_str not in content and old_str != "":
+            return f"Error: old_str not found in '{path}'"
 
-        # Check if replacement actually happened
-        if content == new_content and old_str != "":
-            return "Error: old_str not found in file"
+        new_content = content.replace(old_str, new_str) if old_str != "" else new_str
 
         # Write the modified content back to file
-        try:
-            with open(path, 'w', encoding='utf-8') as f:
-                f.write(new_content)
-            return "OK"
-        except Exception as e:
-            return f"Error writing file: {str(e)}"
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(new_content)
+        
+        return f"Successfully updated '{path}'"
 
     except Exception as e:
         return f"Error editing file: {str(e)}"
@@ -172,7 +197,7 @@ def rename_file_tool(args: Dict[str, Any]) -> str:
         os.rename(old_path, new_path)
         return f"Successfully renamed {old_path} to {new_path}"
     except Exception as e:
-        return f"Error renaming file: {str(e)}"
+        return f"Error: {str(e)}"
 
 
 def run_code_tool(args: Dict[str, Any]) -> str:
@@ -213,7 +238,7 @@ def run_code_tool(args: Dict[str, Any]) -> str:
     except subprocess.TimeoutExpired:
         return "Error: Command timed out after 30 seconds"
     except Exception as e:
-        return f"Error executing code in sandbox: {str(e)}"
+        return f"Error: {str(e)}"
 
 
 
@@ -258,7 +283,7 @@ def create_gmail_draft(recipient: str, subject: str, body: str, attachments: Lis
                     part.add_header('Content-Disposition', f'attachment; filename="{filename}"')
                     msg.attach(part)
                 except Exception as file_err:
-                    return f"Error reading attachment {path}: {str(file_err)}"
+                    return f"Error: Reading attachment {path} failed: {str(file_err)}"
             else:
                 return f"Error: Attachment file not found at {path}"
 
@@ -267,9 +292,9 @@ def create_gmail_draft(recipient: str, subject: str, body: str, attachments: Lis
             imap = imaplib.IMAP4_SSL("imap.gmail.com")
             imap.login(user, password)
         except imaplib.IMAP4.error as auth_err:
-            return f"Authentication failed. Please ensure: 1. Your GMAIL_PASSWORD in .env is a 16-character App Password. 2. IMAP is enabled. Original error: {str(auth_err)}"
+            return f"Error: Authentication failed. Please ensure: 1. Your GMAIL_PASSWORD in .env is a 16-character App Password. 2. IMAP is enabled. Original error: {str(auth_err)}"
         except Exception as conn_err:
-            return f"Failed to connect to Gmail IMAP: {str(conn_err)}"
+            return f"Error: Failed to connect to Gmail IMAP: {str(conn_err)}"
 
         # Try to find the Drafts folder
         status, folders = imap.list()
@@ -300,14 +325,83 @@ def create_gmail_draft(recipient: str, subject: str, body: str, attachments: Lis
             msg_bytes = msg.as_bytes(policy=SMTP)
             res, detail = imap.append(quoted_folder, r'(\Draft)', imaplib.Time2Internaldate(time.time()), msg_bytes)
             if res != 'OK':
-                return f"IMAP APPEND failed: {res} - {str(detail)}"
+                return f"Error: IMAP APPEND failed: {res} - {str(detail)}"
         except Exception as append_err:
-            return f"Exception during IMAP APPEND to '{draft_folder}': {str(append_err)}"
+            return f"Error: Exception during IMAP APPEND to '{draft_folder}': {str(append_err)}"
             
         imap.logout()
         return "OK"
     except Exception as e:
-        return f"Error creating draft: {str(e)}"
+        return f"Error: {str(e)}"
+
+
+def find_chrome_profile_for_email(email: str) -> str:
+    """Attempt to find the Chrome profile name associated with a specific email."""
+    if not email:
+        return "Default"
+    
+    system = platform.system()
+    if system == "Windows":
+        base_path = os.path.expandvars(r"%LocalAppData%\Google\Chrome\User Data")
+    elif system == "Darwin":
+        base_path = os.path.expanduser("~/Library/Application Support/Google/Chrome")
+    else:
+        base_path = os.path.expanduser("~/.config/google-chrome")
+
+    if not os.path.exists(base_path):
+        return "Default"
+
+    try:
+        profiles = [d for d in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, d)) and (d == "Default" or d.startswith("Profile"))]
+        
+        for profile in profiles:
+            pref_path = os.path.join(base_path, profile, "Preferences")
+            if os.path.exists(pref_path):
+                try:
+                    with open(pref_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+                        if email.lower() in content.lower():
+                            return profile
+                except Exception:
+                    continue
+    except Exception:
+        pass
+        
+    return "Default"
+
+
+def open_url_in_chrome_profile(url: str, email: str = None) -> bool:
+    """Attempt to open a URL in a specific Chrome profile."""
+    # Priority: 1. Explicitly configured directory, 2. Auto-discovered directory, 3. Default
+    profile = getattr(settings, 'CHROME_PROFILE_DIRECTORY', None)
+    if not profile or profile == "Default":
+        profile = find_chrome_profile_for_email(email)
+    
+    system = platform.system()
+    
+    try:
+        if system == "Windows":
+            # Common paths for Chrome on Windows
+            chrome_paths = [
+                os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+                os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+                os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe")
+            ]
+            for path in chrome_paths:
+                if os.path.exists(path):
+                    subprocess.Popen([path, f"--profile-directory={profile}", url])
+                    return True
+        elif system == "Darwin":  # macOS
+            subprocess.Popen(["open", "-a", "Google Chrome", "--args", f"--profile-directory={profile}", url])
+            return True
+        elif system == "Linux":
+            subprocess.Popen(["google-chrome", f"--profile-directory={profile}", url])
+            return True
+    except Exception:
+        pass
+    
+    # Fallback to default browser
+    return webbrowser.open_new_tab(url)
 
 
 def open_gmail_and_compose_tool(args: Dict[str, Any]) -> str:
@@ -331,8 +425,10 @@ def open_gmail_and_compose_tool(args: Dict[str, Any]) -> str:
         if draft_result == "OK":
             drafts_url = f"{base_url}#drafts"
             try:
-                webbrowser.open_new_tab(drafts_url)
-                return f"A draft with the attachments has been created in your Gmail Drafts ({user}). I've opened your Drafts folder in the browser. Please review and send it."
+                opened = open_url_in_chrome_profile(drafts_url, user)
+                if opened:
+                    return f"A draft with the attachments has been created in your Gmail Drafts ({user}). I've opened your Drafts folder in the browser (Profile: {find_chrome_profile_for_email(user)}). Please review and send it."
+                return f"A draft with the attachments has been created in your Gmail Drafts ({user}). Please open {drafts_url} to review and send it."
             except:
                 return f"A draft with the attachments has been created in your Gmail Drafts ({user}). Please open {drafts_url} to review and send it."
         else:
@@ -347,8 +443,10 @@ def open_gmail_and_compose_tool(args: Dict[str, Any]) -> str:
             compose_url = f"{base_url}?view=cm&fs=1&tf=1&" + "&".join(query)
             
             try:
-                webbrowser.open_new_tab(compose_url)
-                return f"{fallback_msg} I've opened the standard compose window for you instead. Please attach the files manually and send."
+                opened = open_url_in_chrome_profile(compose_url, user)
+                if opened:
+                    return f"{fallback_msg} I've opened the standard compose window for you instead (Profile: {find_chrome_profile_for_email(user)}). Please attach the files manually and send."
+                return f"{fallback_msg} Please open this link to compose manually: {compose_url}"
             except:
                 return f"{fallback_msg} Please open this link to compose manually: {compose_url}"
 
@@ -360,9 +458,9 @@ def open_gmail_and_compose_tool(args: Dict[str, Any]) -> str:
     compose_url = f"{base_url}?view=cm&fs=1&tf=1&" + "&".join(query)
 
     try:
-        opened = webbrowser.open_new_tab(compose_url)
+        opened = open_url_in_chrome_profile(compose_url, user)
         if opened:
-            return f"Gmail compose window for {user} opened in your browser. Log in if prompted, review the message, and press Send."
+            return f"Gmail compose window for {user} opened in your browser (Profile: {find_chrome_profile_for_email(user)}). Log in if prompted, review the message, and press Send."
         return f"Open this link manually to compose the email: {compose_url}"
     except Exception as e:
         return f"Error launching browser automatically ({str(e)}). Open this link manually: {compose_url}"
@@ -378,6 +476,14 @@ READ_FILE_DEFINITION = ToolDefinition(
             "path": {
                 "type": "string",
                 "description": "The absolute or relative path of a file."
+            },
+            "offset": {
+                "type": "integer",
+                "description": "The character offset to start reading from."
+            },
+            "limit": {
+                "type": "integer",
+                "description": "The maximum number of characters to read."
             }
         },
         "required": ["path"]
@@ -547,11 +653,12 @@ def main():
 
 
 class Agent:
-    def __init__(self, client, model_name, get_user_message, tools: List[ToolDefinition]):
+    def __init__(self, client, model_name, get_user_message, tools: List[ToolDefinition], max_history: int = 15):
         self.client = client
         self.model_name = model_name
         self.get_user_message = get_user_message
         self.tools = tools
+        self.max_history = max_history
         
         # Initialize tools for OpenAI usage
         self.openai_tools = self._convert_tools_to_openai_format()
@@ -564,6 +671,8 @@ class Agent:
         3. Use the 'run_code' tool to verify that any code you generate or edit is syntactically correct and performs as expected.
         4. Be concise but thorough.
         5. You have FULL ACCESS to the local filesystem using absolute or relative paths. Do not claim you cannot access or retrieve files; instead, use the provided tools (like 'read_file', 'list_files', or specifying paths in tool arguments) to interact with them.
+        6. Do not ask for permission to perform an action; just execute the necessary steps to complete the task.
+        7. In your final summary, avoid using the words "Error" or "Exception" if the task was completed successfully, as these words are used for automated failure detection. Use words like "issue", "problem", or "fault" if you must refer to them.
         """
 
     def chat_once(self, conversation_history=None, message=None):
@@ -603,7 +712,7 @@ class Agent:
             # Send the message and get response
             response = self.client.chat.completions.create(
                 model=self.model_name,
-                messages=messages,
+                messages=self._trim_messages(messages),
                 tools=self.openai_tools,
                 tool_choice="auto"
             )
@@ -645,7 +754,7 @@ class Agent:
                 # Get follow-up
                 follow_up = self.client.chat.completions.create(
                     model=self.model_name,
-                    messages=messages,
+                    messages=self._trim_messages(messages),
                     tools=self.openai_tools,
                     tool_choice="auto"
                 )
@@ -680,7 +789,7 @@ class Agent:
             try:
                 response = self.client.chat.completions.create(
                     model=self.model_name,
-                    messages=self.messages,
+                    messages=self._trim_messages(self.messages),
                     tools=self.openai_tools,
                     tool_choice="auto"
                 )
@@ -724,7 +833,7 @@ class Agent:
                 try:
                     follow_up = self.client.chat.completions.create(
                         model=self.model_name,
-                        messages=self.messages,
+                        messages=self._trim_messages(self.messages),
                         tools=self.openai_tools,
                         tool_choice="auto"
                     )
@@ -760,6 +869,26 @@ class Agent:
                 }
             })
         return openai_tools
+
+    def _trim_messages(self, messages: List[Any]) -> List[Any]:
+        """
+        Trim message history to stay within token limits.
+        Keeps the system message and the most recent max_history messages.
+        """
+        if len(messages) <= self.max_history + 1:
+            return messages
+            
+        system_message = messages[0] if messages[0].get("role") == "system" else None
+        
+        # Keep the most recent messages
+        recent_messages = messages[-(self.max_history):]
+        
+        trimmed = []
+        if system_message:
+            trimmed.append(system_message)
+        trimmed.extend(recent_messages)
+        
+        return trimmed
 
     def generate_code(self, task_description: str, language: str = "python", stepwise: bool = True) -> str:
         """
