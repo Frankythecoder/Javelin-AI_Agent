@@ -72,11 +72,40 @@ Create a `.env` file in the project root:
 
 ```
 OPENAI_API_KEY=your_openai_api_key
+
+# Gmail Configuration
+GMAIL_ADDRESS=your_email@gmail.com
+GMAIL_PASSWORD=your_16_char_app_password
+
+# Browser Configuration (Optional)
+CHROME_PROFILE_DIRECTORY=Profile 23
+
 # Optional S3 support
 AWS_ACCESS_KEY_ID=your_aws_key
 AWS_SECRET_ACCESS_KEY=your_aws_secret
 AWS_STORAGE_BUCKET_NAME=your_bucket
 ```
+
+---
+
+## Gmail & Chrome Profile Setup
+
+The agent includes a specialized `open_gmail_and_compose` tool that can create drafts with attachments and open them in a specific Chrome profile.
+
+### 1. Gmail Tool Configuration
+To enable the Gmail tool:
+- **Enable IMAP**: Go to Gmail Settings > Forwarding and POP/IMAP and ensure **Enable IMAP** is selected.
+- **Generate App Password**: If you have 2-Step Verification enabled, go to your Google Account security settings and create a 16-character **App Password**.
+- **Update `.env`**: Add your `GMAIL_ADDRESS` and `GMAIL_PASSWORD` (the app password).
+
+### 2. Chrome Profile Selection
+The agent can open Gmail in the specific Chrome profile where you are already logged in:
+- **Auto-Discovery**: By default, `agents.py` scans your local Chrome `User Data` directory to find the profile associated with your `GMAIL_ADDRESS`.
+- **Manual Setting**: If you want to force a specific profile, find your profile folder name (e.g., `Default`, `Profile 1`, `Profile 23`) and set it as `CHROME_PROFILE_DIRECTORY` in your `.env` file.
+- **How to find your profile name**: Visit `chrome://version/` in Chrome and look at the **Profile Path**. The last part of the path (e.g., `Profile 23`) is your directory name.
+
+---
+
 
 ### 4. Database Migration
 
