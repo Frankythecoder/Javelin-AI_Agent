@@ -227,6 +227,8 @@ def run_code_tool(args: Dict[str, Any]) -> str:
             "sh", "-c", command
         ]
 
+        print(f"\033[92mExecuting Docker Command:\033[0m {' '.join(docker_command)}")
+
         result = subprocess.run(
             docker_command, 
             capture_output=True, 
@@ -241,6 +243,53 @@ def run_code_tool(args: Dict[str, Any]) -> str:
     except Exception as e:
         return f"Error: {str(e)}"
 
+
+def check_syntax_tool(args: Dict[str, Any]) -> str:
+    """Check the syntax of a code file."""
+    path = args.get('path', '')
+    if not path:
+        return "Error: no path provided"
+    
+    ext = os.path.splitext(path)[1].lower()
+    if ext == '.py':
+        command = f"python3 -m py_compile {path}"
+    elif ext == '.java':
+        command = f"javac {path}"
+    else:
+        return f"Error: syntax check not supported for extension {ext}"
+    
+    return run_code_tool({'command': command})
+
+
+def run_tests_tool(args: Dict[str, Any]) -> str:
+    """Run tests for the project."""
+    command = args.get('command', '')
+    if not command:
+        # Try to infer command
+        if os.path.exists('pytest.ini') or os.path.exists('tests/'):
+            command = "pytest"
+        else:
+            return "Error: no test command provided and could not infer one"
+    
+    return run_code_tool({'command': command})
+
+
+def lint_code_tool(args: Dict[str, Any]) -> str:
+    """Run static analysis (linting) on a code file."""
+    path = args.get('path', '')
+    if not path:
+        return "Error: no path provided"
+    
+    ext = os.path.splitext(path)[1].lower()
+    if ext == '.py':
+        command = f"pylint {path}"
+    elif ext == '.java':
+        # Simple checkstyle-like check with javac warnings
+        command = f"javac -Xlint:all {path}"
+    else:
+        return f"Error: linting not supported for extension {ext}"
+    
+    return run_code_tool({'command': command})
 
 
 def create_gmail_draft(recipient: str, subject: str, body: str, attachments: List[str]) -> str:
@@ -595,6 +644,60 @@ RUN_CODE_DEFINITION = ToolDefinition(
 )
 
 
+CHECK_SYNTAX_DEFINITION = ToolDefinition(
+    name="check_syntax",
+    description="Check the syntax of a code file (supports .py and .java).",
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "The path to the code file."
+            }
+        },
+        "required": ["path"]
+    },
+    function=check_syntax_tool,
+    requires_approval=True
+)
+
+
+RUN_TESTS_DEFINITION = ToolDefinition(
+    name="run_tests",
+    description="Run tests for the project. Automatically detects pytest if no command is provided.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "string",
+                "description": "Optional command to run tests."
+            }
+        },
+        "required": []
+    },
+    function=run_tests_tool,
+    requires_approval=True
+)
+
+
+LINT_CODE_DEFINITION = ToolDefinition(
+    name="lint_code",
+    description="Run static analysis (linting) on a code file (supports .py and .java).",
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "The path to the code file."
+            }
+        },
+        "required": ["path"]
+    },
+    function=lint_code_tool,
+    requires_approval=True
+)
+
+
 OPEN_GMAIL_AND_COMPOSE_DEFINITION = ToolDefinition(
     name="open_gmail_and_compose",
     description="Open Gmail in a browser and compose an email. If attachments are provided, a draft will be created automatically for you to review and send.",
@@ -639,6 +742,9 @@ def main():
         DELETE_FILE_DEFINITION, 
         RENAME_FILE_DEFINITION, 
         RUN_CODE_DEFINITION,
+        CHECK_SYNTAX_DEFINITION,
+        RUN_TESTS_DEFINITION,
+        LINT_CODE_DEFINITION,
         OPEN_GMAIL_AND_COMPOSE_DEFINITION
     ]
     model_name = 'gpt-4o'
@@ -673,12 +779,16 @@ class Agent:
         You are an expert AI software engineer. When performing tasks:
         1. Always verify the state of the filesystem before and after your actions.
         2. If a tool returns an error, analyze the cause and try a different approach.
-        3. Use the 'run_code' tool to verify that any code you generate or edit is syntactically correct and performs as expected.
+        3. Use the 'check_syntax', 'run_tests', and 'lint_code' tools to identify and fix errors:
+           - Syntax Errors: Use 'check_syntax' to catch compile-time or parse errors.
+           - Logical Errors: Use 'run_tests' to verify behavior against expectations.
+           - Static Analysis: Use 'lint_code' to find code smells and potential bugs.
         4. Be concise but thorough.
         5. You have FULL ACCESS to the local filesystem using absolute or relative paths. Do not claim you cannot access or retrieve files; instead, use the provided tools (like 'read_file', 'list_files', or specifying paths in tool arguments) to interact with them.
-        6. Always prioritize the current working directory ('.') for all tool operations unless the user explicitly specifies a different path for the current task. Do not assume previous paths from history apply to new, unrelated tasks.
+        6. Use absolute or relative paths as provided. Default to the current working directory ('.') if no path is explicitly specified. Do not assume previous paths from history apply to new, unrelated tasks.
         7. Do not ask for permission to perform an action; just execute the necessary steps to complete the task.
         8. In your final summary, avoid using the words "Error" or "Exception" if the task was completed successfully, as these words are used for automated failure detection. Use words like "issue", "problem", or "fault" if you must refer to them.
+        9. ALWAYS report the actual output from tool executions. Never hallucinate or skip reporting the execution results.
         """
 
     def chat_once(self, conversation_history=None, message=None):
@@ -888,6 +998,7 @@ class Agent:
 
     def _execute_tool_by_name(self, name, args):
         """Find and execute a tool by name."""
+        print(f"\033[96mTool Call:\033[0m {name}({json.dumps(args)})")
         for tool in self.tools:
             if tool.name == name:
                 try:

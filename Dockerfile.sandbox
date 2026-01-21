@@ -1,14 +1,15 @@
 # Use a lightweight Python image
 FROM python:3.11-slim
 
-# Install basic system utilities the agent might need
+# Install basic system utilities, JDK for Java, and common tools
 RUN apt-get update && apt-get install -y \
     git \
     curl \
+    default-jdk \
     && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory inside the container
 WORKDIR /workspace
 
-# Pre-install common libraries to save time during execution
-RUN pip install pandas requests numpy
+# Pre-install common libraries and linters
+RUN pip install pandas requests numpy pylint flake8 pytest
