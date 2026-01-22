@@ -5,3 +5,4 @@ openai
 boto3
 django-storages
 pygame
+opencv-python

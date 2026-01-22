@@ -5,12 +5,14 @@
 
 import os
 import json
+import base64
 import webbrowser
 import imaplib
 import time
 import re
 import subprocess
 import platform
+import cv2
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
@@ -257,6 +259,23 @@ def check_syntax_tool(args: Dict[str, Any]) -> str:
         command = f"python3 -m py_compile {path}"
     elif ext == '.java':
         command = f"javac {path}"
+    elif ext in ['.c']:
+        command = f"gcc -fsyntax-only {path}"
+    elif ext in ['.cpp', '.cc', '.cxx']:
+        command = f"g++ -fsyntax-only {path}"
+    elif ext == '.rs':
+        if os.path.exists('Cargo.toml'):
+            command = "cargo check"
+        else:
+            command = f"rustc --edition 2021 -o /dev/null --emit=dep-info {path}"
+    elif ext in ['.js', '.jsx']:
+        command = f"node --check {path}"
+    elif ext in ['.ts', '.tsx']:
+        command = f"tsc --noEmit {path}"
+    elif ext == '.go':
+        command = f"go build -o /dev/null {path}"
+    elif ext == '.sql':
+        command = f"sqlfluff lint {path} --dialect ansi"
     else:
         return f"Error: syntax check not supported for extension {ext}"
     
@@ -270,6 +289,18 @@ def run_tests_tool(args: Dict[str, Any]) -> str:
         # Try to infer command
         if os.path.exists('pytest.ini') or os.path.exists('tests/'):
             command = "pytest"
+        elif os.path.exists('Cargo.toml'):
+            command = "cargo test"
+        elif os.path.exists('package.json'):
+            command = "npm test"
+        elif os.path.exists('go.mod'):
+            command = "go test ./..."
+        elif os.path.exists('pom.xml'):
+            command = "mvn test"
+        elif os.path.exists('build.gradle'):
+            command = "gradle test"
+        elif os.path.exists('Makefile'):
+            command = "make test"
         else:
             return "Error: no test command provided and could not infer one"
     
@@ -288,6 +319,16 @@ def lint_code_tool(args: Dict[str, Any]) -> str:
     elif ext == '.java':
         # Simple checkstyle-like check with javac warnings
         command = f"javac -Xlint:all {path}"
+    elif ext in ['.c', '.cpp', '.cc', '.cxx']:
+        command = f"cppcheck {path}"
+    elif ext == '.rs':
+        command = "cargo clippy" if os.path.exists('Cargo.toml') else f"rustc -W help"
+    elif ext in ['.js', '.jsx', '.ts', '.tsx']:
+        command = f"eslint {path}"
+    elif ext == '.go':
+        command = f"go vet {path}"
+    elif ext == '.sql':
+        command = f"sqlfluff lint {path} --dialect ansi"
     else:
         return f"Error: linting not supported for extension {ext}"
     
@@ -518,6 +559,109 @@ def open_gmail_and_compose_tool(args: Dict[str, Any]) -> str:
         return f"Error launching browser automatically ({str(e)}). Open this link manually: {compose_url}"
 
 
+def recognize_image_tool(args: Dict[str, Any]) -> str:
+    """Use GPT-4o vision to recognize contents of an image (jpg, png)."""
+    path = args.get('path', '')
+    prompt = args.get('prompt', 'What is in this image? Provide a detailed description.')
+
+    if not path or not os.path.exists(path):
+        return f"Error: File '{path}' not found."
+
+    try:
+        # Read and encode image to base64
+        with open(path, "rb") as image_file:
+            base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+
+        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}"
+                            }
+                        },
+                    ],
+                }
+            ],
+            max_tokens=500,
+        )
+
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Error during image recognition: {str(e)}"
+
+
+def recognize_video_tool(args: Dict[str, Any]) -> str:
+    """Use GPT-4o vision to recognize contents of a video (mp4) by extracting frames."""
+    path = args.get('path', '')
+    prompt = args.get('prompt', 'These are frames from a video. What is happening? Provide a summary and details.')
+    max_frames = args.get('max_frames', 10)
+
+    if not path or not os.path.exists(path):
+        return f"Error: File '{path}' not found."
+
+    try:
+        video = cv2.VideoCapture(path)
+        total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = video.get(cv2.CAP_PROP_FPS)
+        
+        if total_frames <= 0:
+            return "Error: Could not read frames from video."
+
+        # Sample frames evenly
+        interval = max(1, total_frames // max_frames)
+        base64_frames = []
+        
+        count = 0
+        while video.isOpened():
+            success, frame = video.read()
+            if not success or len(base64_frames) >= max_frames:
+                break
+            
+            if count % interval == 0:
+                _, buffer = cv2.imencode(".jpg", frame)
+                base64_frames.append(base64.b64encode(buffer).decode("utf-8"))
+            
+            count += 1
+        
+        video.release()
+
+        if not base64_frames:
+            return "Error: No frames extracted from video."
+
+        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        
+        content = [{"type": "text", "text": prompt}]
+        for base64_frame in base64_frames:
+            content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{base64_frame}"
+                }
+            })
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "user",
+                    "content": content,
+                }
+            ],
+            max_tokens=1000,
+        )
+
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Error during video recognition: {str(e)}"
+
+
 # Define the read_file tool
 READ_FILE_DEFINITION = ToolDefinition(
     name="read_file",
@@ -732,6 +876,52 @@ OPEN_GMAIL_AND_COMPOSE_DEFINITION = ToolDefinition(
 )
 
 
+RECOGNIZE_IMAGE_DEFINITION = ToolDefinition(
+    name="recognize_image",
+    description="Analyze the contents of an image (jpg, png) using GPT-4o vision. Provide a path and optional prompt.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "The path to the image file."
+            },
+            "prompt": {
+                "type": "string",
+                "description": "What you want to know about the image."
+            }
+        },
+        "required": ["path"]
+    },
+    function=recognize_image_tool
+)
+
+
+RECOGNIZE_VIDEO_DEFINITION = ToolDefinition(
+    name="recognize_video",
+    description="Analyze the contents of a video (mp4) using GPT-4o vision by extracting frames. Provide a path and optional prompt.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "The path to the video file."
+            },
+            "prompt": {
+                "type": "string",
+                "description": "What you want to know about the video."
+            },
+            "max_frames": {
+                "type": "integer",
+                "description": "Maximum number of frames to extract and analyze (default 10)."
+            }
+        },
+        "required": ["path"]
+    },
+    function=recognize_video_tool
+)
+
+
 def main():
     # Configure OpenAI with API key
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
@@ -747,7 +937,9 @@ def main():
         CHECK_SYNTAX_DEFINITION,
         RUN_TESTS_DEFINITION,
         LINT_CODE_DEFINITION,
-        OPEN_GMAIL_AND_COMPOSE_DEFINITION
+        OPEN_GMAIL_AND_COMPOSE_DEFINITION,
+        RECOGNIZE_IMAGE_DEFINITION,
+        RECOGNIZE_VIDEO_DEFINITION
     ]
     model_name = 'gpt-4o'
 
