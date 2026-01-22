@@ -13,6 +13,7 @@ import re
 import subprocess
 import platform
 import cv2
+import shutil
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
@@ -34,6 +35,214 @@ class ToolDefinition:
         self.requires_approval = requires_approval
 
 
+def find_file_broadly(filename: str) -> str:
+    """Attempt to find a file by name in common user directories."""
+    if not filename:
+        return None
+        
+    if os.path.isabs(filename):
+        return filename if os.path.exists(filename) else None
+        
+    # Handle nested paths by resolving the base directory first
+    normalized_path = filename.replace('\\', '/')
+    if '/' in normalized_path:
+        parts = normalized_path.split('/')
+        base_dir = find_directory_broadly(parts[0])
+        if base_dir and os.path.isabs(base_dir):
+            return find_file_broadly(os.path.join(base_dir, *parts[1:]))
+
+    # Check for well-known folders directly if filename is one of them
+    user_home = os.path.expanduser("~")
+    well_known = {
+        "frank": user_home,
+        "documents": os.path.join(user_home, "Documents"),
+        "desktop": os.path.join(user_home, "Desktop"),
+        "downloads": os.path.join(user_home, "Downloads"),
+        "pictures": os.path.join(user_home, "Pictures"),
+        "videos": os.path.join(user_home, "Videos"),
+    }
+    if filename.lower() in well_known:
+        path = well_known[filename.lower()]
+        if os.path.exists(path):
+            return path
+
+    # Search in current directory
+    if os.path.exists(filename):
+        return os.path.abspath(filename)
+        
+    # Define common search paths
+    user_home = os.path.expanduser("~")
+    search_dirs = [
+        user_home,
+        os.path.join(user_home, "Documents"),
+        os.path.join(user_home, "OneDrive", "Documents"),
+        os.path.join(user_home, "Desktop"),
+        os.path.join(user_home, "OneDrive", "Desktop"),
+        os.path.join(user_home, "Downloads"),
+        os.path.join(user_home, "Pictures"),
+        os.path.join(user_home, "Pictures", "Screenshots"),
+        os.path.join(user_home, "Videos"),
+        os.getcwd(),
+    ]
+    
+    # Filter out non-existent directories and ensure uniqueness
+    search_dirs = list(dict.fromkeys(d for d in search_dirs if os.path.exists(d)))
+    
+    # Search for exact match first
+    for directory in search_dirs:
+        # Check direct children
+        try:
+            for entry in os.listdir(directory):
+                if entry.lower() == filename.lower() or os.path.splitext(entry)[0].lower() == filename.lower():
+                    full_path = os.path.join(directory, entry)
+                    if os.path.isfile(full_path):
+                        return full_path
+        except Exception:
+            continue
+            
+    # Search recursively with limited depth if not found
+    for directory in search_dirs:
+        try:
+            for root, dirs, files in os.walk(directory):
+                # Limit depth to avoid performance issues
+                try:
+                    rel = os.path.relpath(root, directory)
+                    depth = 0 if rel == '.' else len(rel.replace('\\', '/').split('/'))
+                except ValueError:
+                    depth = 0
+                if depth >= 4:
+                    del dirs[:] # Don't go deeper
+                
+                for file in files:
+                    if file.lower() == filename.lower() or os.path.splitext(file)[0].lower() == filename.lower() or filename.lower() in file.lower():
+                        return os.path.join(root, file)
+        except Exception:
+            continue
+            
+    return None
+    
+    
+def find_directory_broadly(dirname: str) -> str:
+    """Attempt to find a directory by name in common user directories."""
+    if not dirname:
+        return None
+        
+    if os.path.isabs(dirname):
+        return dirname if os.path.isdir(dirname) else None
+        
+    # Handle nested paths by resolving the base directory first
+    normalized_path = dirname.replace('\\', '/')
+    if '/' in normalized_path:
+        parts = normalized_path.split('/')
+        base_dir = find_directory_broadly(parts[0])
+        if base_dir and os.path.isabs(base_dir):
+            return os.path.abspath(os.path.join(base_dir, *parts[1:]))
+
+    # Check for well-known folders directly if dirname is one of them
+    user_home = os.path.expanduser("~")
+    well_known = {
+        "frank": user_home,
+        "documents": os.path.join(user_home, "Documents"),
+        "desktop": os.path.join(user_home, "Desktop"),
+        "downloads": os.path.join(user_home, "Downloads"),
+        "pictures": os.path.join(user_home, "Pictures"),
+        "videos": os.path.join(user_home, "Videos"),
+    }
+    if dirname.lower() in well_known:
+        path = well_known[dirname.lower()]
+        if os.path.exists(path):
+            return path
+
+    # Search in current directory
+    if os.path.isdir(dirname):
+        return os.path.abspath(dirname)
+        
+    # Define common search paths
+    user_home = os.path.expanduser("~")
+    search_dirs = [
+        os.path.join(user_home, "Documents"),
+        os.path.join(user_home, "OneDrive", "Documents"),
+        os.path.join(user_home, "Desktop"),
+        os.path.join(user_home, "OneDrive", "Desktop"),
+        os.path.join(user_home, "Downloads"),
+        os.path.join(user_home, "Pictures"),
+        os.path.join(user_home, "Videos"),
+        user_home,
+        os.getcwd(),
+    ]
+    
+    # Filter out non-existent directories and ensure uniqueness
+    search_dirs = list(dict.fromkeys(d for d in search_dirs if os.path.exists(d)))
+    
+    # Search for exact match first
+    for directory in search_dirs:
+        try:
+            for entry in os.listdir(directory):
+                full_path = os.path.join(directory, entry)
+                if os.path.isdir(full_path) and entry.lower() == dirname.lower():
+                    return full_path
+        except Exception:
+            continue
+            
+    # Search recursively with limited depth if not found
+    for directory in search_dirs:
+        try:
+            for root, dirs, files in os.walk(directory):
+                # Limit depth to avoid performance issues
+                try:
+                    rel = os.path.relpath(root, directory)
+                    depth = 0 if rel == '.' else len(rel.replace('\\', '/').split('/'))
+                except ValueError:
+                    depth = 0
+                if depth >= 4:
+                    del dirs[:] # Don't go deeper
+                    
+                for d in dirs:
+                    if d.lower() == dirname.lower() or dirname.lower() in d.lower():
+                        return os.path.join(root, d)
+        except Exception:
+            continue
+            
+    return None
+
+
+def find_file_broadly_tool(args: Dict[str, Any]) -> str:
+    """Attempt to find a file by name in common user directories."""
+    filename = args.get('filename', '')
+    if not filename:
+        return "Error: No filename provided."
+    found_path = find_file_broadly(filename)
+    if found_path:
+        return f"File found at: {found_path}"
+    else:
+        return f"Could not find file '{filename}' in common directories."
+
+
+def find_directory_broadly_tool(args: Dict[str, Any]) -> str:
+    """Attempt to find a directory by name in common user directories."""
+    dirname = args.get('dirname', '')
+    if not dirname:
+        return "Error: No directory name provided."
+    found_path = find_directory_broadly(dirname)
+    if found_path:
+        return f"Directory found at: {found_path}"
+    else:
+        return f"Could not find directory '{dirname}' in common directories."
+
+
+def search_file_tool(args: Dict[str, Any]) -> str:
+    """Search for a file by name across common directories and return its absolute path."""
+    filename = args.get('filename', '')
+    if not filename:
+        return "Error: No filename provided."
+        
+    found_path = find_file_broadly(filename)
+    if found_path:
+        return f"File found at: {found_path}"
+    else:
+        return f"Could not find file '{filename}' in common directories."
+
+
 def read_file_tool(args: Dict[str, Any]) -> str:
     """Read the contents of a given file path (absolute or relative) with enhanced error handling for binary files and size limits."""
     path = args.get('path', '')
@@ -43,31 +252,41 @@ def read_file_tool(args: Dict[str, Any]) -> str:
     if not path:
         return "No path provided."
 
+    # Try to find the file if it doesn't exist at the given path
+    actual_path = path
     if not os.path.exists(path):
-        return f"File '{path}' does not exist."
+        found_path = find_file_broadly(path)
+        if found_path:
+            actual_path = found_path
+        else:
+            return f"Error: File '{path}' does not exist and could not be found in common directories."
 
-    if os.path.isdir(path):
-        return f"'{path}' is a directory, not a file."
+    if os.path.isdir(actual_path):
+        return f"'{actual_path}' is a directory, not a file."
 
     try:
         # Read initial bytes to determine file type
-        with open(path, 'rb') as f:
+        with open(actual_path, 'rb') as f:
             initial_bytes = f.read(1024)
             # Character set to check for non-text files
             text_characters = bytearray({7, 8, 9, 10, 12, 13, 27} | set(range(0x20, 0x100)))
             is_binary = bool(initial_bytes.translate(None, text_characters))
 
             if is_binary:
-                return "The file appears to be binary and cannot be read as text."
+                # If it's binary, check if it's an image we can recognize
+                ext = os.path.splitext(actual_path)[1].lower()
+                if ext in ['.jpg', '.jpeg', '.png']:
+                    return f"The file '{actual_path}' appears to be an image. Use 'recognize_image' tool to analyze it."
+                return f"The file '{actual_path}' appears to be binary and cannot be read as text."
 
         # If the file is text, proceed to read it with limit and offset
-        file_size = os.path.getsize(path)
-        with open(path, 'r', encoding='utf-8', errors='replace') as f:
+        file_size = os.path.getsize(actual_path)
+        with open(actual_path, 'r', encoding='utf-8', errors='replace') as f:
             if offset > 0:
                 f.seek(offset)
             content = f.read(limit)
         
-        result = content
+        result = f"Content of {actual_path}:\n\n" + content
         if file_size > (offset + limit):
             result += f"\n\n[... Output truncated. File size: {file_size} bytes. Read {limit} characters from offset {offset}. Use 'limit' and 'offset' to read more ...]"
         
@@ -87,16 +306,21 @@ def list_files_tool(args: Dict[str, Any]) -> str:
         if not path:
             path = '.'
 
+        actual_path = path
         if not os.path.exists(path):
-            return f"Error: Path '{path}' does not exist."
+            found_path = find_directory_broadly(path)
+            if found_path:
+                actual_path = found_path
+            else:
+                return f"Error: Path '{path}' does not exist and could not be found in common directories."
         
-        if not os.path.isdir(path):
-            return f"Error: Path '{path}' is not a directory."
+        if not os.path.isdir(actual_path):
+            return f"Error: Path '{actual_path}' is not a directory."
 
-        entries = os.listdir(path)
+        entries = os.listdir(actual_path)
         files = []
         for entry in entries:
-            full_path = os.path.join(path, entry)
+            full_path = os.path.join(actual_path, entry)
             if os.path.isdir(full_path):
                 files.append(f"{entry}/")
             else:
@@ -125,17 +349,35 @@ def create_new_file(file_path: str, content: str) -> str:
 
 
 def delete_file_tool(args: Dict[str, Any]) -> str:
-    """Delete a file at any path (absolute or relative)."""
+    """Delete a file or directory at any path (absolute or relative)."""
     try:
-        file_path = args.get('path', '')
-        if not file_path:
-            return "Error: no file path provided"
-        if not os.path.exists(file_path):
-            return f"Error: file {file_path} does not exist"
-        if os.path.isdir(file_path):
-            return f"Error: {file_path} is a directory, not a file"
-        os.remove(file_path)
-        return f"Successfully deleted file {file_path}"
+        path = args.get('path', '')
+        if not path:
+            return "Error: no path provided"
+            
+        actual_path = path
+        if not os.path.exists(path):
+            # Try to find a directory first if the user mentions "folder" or if it ends in /
+            found_path = None
+            if path.endswith('/') or path.endswith('\\'):
+                found_path = find_directory_broadly(path.rstrip('/\\'))
+            
+            if not found_path:
+                found_path = find_directory_broadly(path)
+            if not found_path:
+                found_path = find_file_broadly(path)
+            
+            if found_path:
+                actual_path = found_path
+            else:
+                return f"Error: '{path}' does not exist and could not be found in common directories."
+
+        if os.path.isdir(actual_path):
+            shutil.rmtree(actual_path)
+            return f"Successfully deleted directory {actual_path}"
+        else:
+            os.remove(actual_path)
+            return f"Successfully deleted file {actual_path}"
     except Exception as e:
         return f"Error: {str(e)}"
 
@@ -150,30 +392,41 @@ def create_and_edit_file_tool(args: Dict[str, Any]) -> str:
         if not path:
             return "Error: No path provided."
         
+        actual_path = path
+        if not os.path.exists(path):
+            # If path doesn't exist, check if the parent directory exists or can be found
+            parent_dir = os.path.dirname(path)
+            filename = os.path.basename(path)
+            
+            if parent_dir and not os.path.exists(parent_dir):
+                found_parent = find_directory_broadly(parent_dir)
+                if found_parent:
+                    actual_path = os.path.join(found_parent, filename)
+        
         if old_str == new_str:
             return "Error: old_str and new_str are the same; no changes made."
 
         # Try to read the existing file
-        if not os.path.exists(path):
+        if not os.path.exists(actual_path):
             if old_str == "":
-                return create_new_file(path, new_str)
+                return create_new_file(actual_path, new_str)
             else:
-                return f"Error: File '{path}' not found and no content provided to create it."
+                return f"Error: File '{actual_path}' not found and no content provided to create it."
 
-        with open(path, 'r', encoding='utf-8', errors='replace') as f:
+        with open(actual_path, 'r', encoding='utf-8', errors='replace') as f:
             content = f.read()
 
         # Replace old_str with new_str
         if old_str not in content and old_str != "":
-            return f"Error: old_str not found in '{path}'"
+            return f"Error: old_str not found in '{actual_path}'"
 
         new_content = content.replace(old_str, new_str) if old_str != "" else new_str
 
         # Write the modified content back to file
-        with open(path, 'w', encoding='utf-8') as f:
+        with open(actual_path, 'w', encoding='utf-8') as f:
             f.write(new_content)
         
-        return f"Successfully updated '{path}'"
+        return f"Successfully updated '{actual_path}'"
 
     except Exception as e:
         return f"Error editing file: {str(e)}"
@@ -197,7 +450,7 @@ def rename_file_tool(args: Dict[str, Any]) -> str:
 
 
 def run_code_tool(args: Dict[str, Any]) -> str:
-    """Execute code in a secure Docker container."""
+    """Execute code locally."""
     import subprocess
     import os
     try:
@@ -205,27 +458,11 @@ def run_code_tool(args: Dict[str, Any]) -> str:
         if not command:
             return "Error: no command provided"
         
-        # Current working directory to mount into the container
-        current_dir = os.getcwd()
-
-        # Build the Docker command
-        # --rm: Automatically remove the container when it exits
-        # -v: Mount your local code into the container's /workspace
-        # --network none: Disable internet access (optional, for extra security)
-        # --memory="512m": Limit RAM usage
-        docker_command = [
-            "docker", "run", "--rm",
-            "-v", f"{current_dir}:/workspace",
-            "--memory", "512m",
-            "--cpus", "0.5",
-            "ai-agent-sandbox",
-            "sh", "-c", command
-        ]
-
-        print(f"\033[92mExecuting Docker Command:\033[0m {' '.join(docker_command)}")
+        print(f"\033[92mExecuting Command:\033[0m {command}")
 
         result = subprocess.run(
-            docker_command, 
+            command, 
+            shell=True,
             capture_output=True, 
             text=True, 
             timeout=30
@@ -662,6 +899,23 @@ def recognize_video_tool(args: Dict[str, Any]) -> str:
         return f"Error during video recognition: {str(e)}"
 
 
+SEARCH_FILE_DEFINITION = ToolDefinition(
+    name="search_file",
+    description="Search for a file by name across common directories (Desktop, Documents, Downloads, Pictures, etc.) and return its absolute path.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "filename": {
+                "type": "string",
+                "description": "The name of the file to search for (e.g., 'my meetings.png')."
+            }
+        },
+        "required": ["filename"]
+    },
+    function=search_file_tool
+)
+
+
 # Define the read_file tool
 READ_FILE_DEFINITION = ToolDefinition(
     name="read_file",
@@ -707,13 +961,13 @@ LIST_FILES_DEFINITION = ToolDefinition(
 
 DELETE_FILE_DEFINITION = ToolDefinition(
     name="delete_file",
-    description="Delete a file at any path (absolute or relative).",
+    description="Delete a file or directory at any path (absolute or relative).",
     parameters={
         "type": "object",
         "properties": {
             "path": {
                 "type": "string",
-                "description": "The absolute or relative path of the file to delete."
+                "description": "The absolute or relative path of the file or directory to delete."
             }
         },
         "required": ["path"]
@@ -922,12 +1176,48 @@ RECOGNIZE_VIDEO_DEFINITION = ToolDefinition(
 )
 
 
+FIND_FILE_BROADLY_DEFINITION = ToolDefinition(
+    name="find_file_broadly",
+    description="Search for a file by name across common directories and return its absolute path.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "filename": {
+                "type": "string",
+                "description": "The name of the file to search for."
+            }
+        },
+        "required": ["filename"]
+    },
+    function=find_file_broadly_tool
+)
+
+
+FIND_DIRECTORY_BROADLY_DEFINITION = ToolDefinition(
+    name="find_directory_broadly",
+    description="Search for a directory by name across common directories and return its absolute path.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "dirname": {
+                "type": "string",
+                "description": "The name of the directory to search for."
+            }
+        },
+        "required": ["dirname"]
+    },
+    function=find_directory_broadly_tool
+)
+
+
+
 def main():
     # Configure OpenAI with API key
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
     # Create the model with tools
     tools = [
+        SEARCH_FILE_DEFINITION,
         READ_FILE_DEFINITION, 
         LIST_FILES_DEFINITION, 
         CREATE_AND_EDIT_FILE_DEFINITION, 
@@ -939,7 +1229,9 @@ def main():
         LINT_CODE_DEFINITION,
         OPEN_GMAIL_AND_COMPOSE_DEFINITION,
         RECOGNIZE_IMAGE_DEFINITION,
-        RECOGNIZE_VIDEO_DEFINITION
+        RECOGNIZE_VIDEO_DEFINITION,
+        FIND_FILE_BROADLY_DEFINITION,
+        FIND_DIRECTORY_BROADLY_DEFINITION
     ]
     model_name = 'gpt-4o'
 
@@ -980,9 +1272,11 @@ class Agent:
         4. Be concise but thorough.
         5. You have FULL ACCESS to the local filesystem using absolute or relative paths. Do not claim you cannot access or retrieve files; instead, use the provided tools (like 'read_file', 'list_files', or specifying paths in tool arguments) to interact with them.
         6. Use absolute or relative paths as provided. Default to the current working directory ('.') if no path is explicitly specified. Do not assume previous paths from history apply to new, unrelated tasks.
-        7. Do not ask for permission to perform an action; just execute the necessary steps to complete the task.
-        8. In your final summary, avoid using the words "Error" or "Exception" if the task was completed successfully, as these words are used for automated failure detection. Use words like "issue", "problem", or "fault" if you must refer to them.
-        9. ALWAYS report the actual output from tool executions. Never hallucinate or skip reporting the execution results.
+        7. If you cannot find a file or directory in the current directory, use the 'search_file' tool or simply use 'read_file', 'list_files', or 'create_and_edit_file' with the name; the system will automatically search common directories (Desktop, Documents, Pictures, etc.) for you.
+        8. If 'read_file' indicates a file is an image, use 'recognize_image' to analyze its contents.
+        9. Do not ask for permission to perform an action; just execute the necessary steps to complete the task.
+        10. In your final summary, avoid using the words "Error" or "Exception" if the task was completed successfully, as these words are used for automated failure detection. Use words like "issue", "problem", or "fault" if you must refer to them.
+        11. ALWAYS report the actual output from tool executions. Never hallucinate or skip reporting the execution results.
         """
 
     def chat_once(self, conversation_history=None, message=None):

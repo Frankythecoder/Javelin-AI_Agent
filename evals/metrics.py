@@ -10,13 +10,24 @@ def calculate_metrics(results_file='results.json'):
         return
 
     with open(results_path, 'r') as f:
-        results = json.load(f)
+        data = json.load(f)
+
+    # Handle both new format (dict with 'results') and old format (list)
+    if isinstance(data, dict) and 'results' in data:
+        results = data['results']
+        summary = data.get('summary', {})
+    else:
+        results = data
+        summary = {}
 
     total = len(results)
+    if total == 0:
+        print("No tasks found in results.")
+        return
+
     completed = sum(1 for r in results if r.get('status') == 'completed')
     
-    # In a real paper, you'd have more sophisticated checks
-    # Here we show how categories can be analyzed
+    # Analyze categories
     categories = {}
     for r in results:
         cat = r.get('category', 'Unknown')
@@ -29,6 +40,11 @@ def calculate_metrics(results_file='results.json'):
     print(f"--- Evaluation Metrics ({results_file}) ---")
     print(f"Total Tasks: {total}")
     print(f"Overall Success Rate: {(completed/total)*100:.2f}%")
+    
+    if summary:
+        print(f"Average Speed: {summary.get('average_task_duration_seconds')}s/task")
+        print(f"Tool Efficiency: {summary.get('tool_calls_per_completed_task')} calls/success")
+
     print("\nCategory Breakdown:")
     for cat, stats in categories.items():
         sr = (stats["completed"] / stats["total"]) * 100

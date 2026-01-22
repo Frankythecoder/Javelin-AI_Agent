@@ -16,3 +16,5 @@ __init__.py
 # SQLite database
 db.sqlite3
 test_imap.py
+test_image.jpg
+test_video.mp4

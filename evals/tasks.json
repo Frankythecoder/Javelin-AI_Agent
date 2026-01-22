@@ -128,7 +128,7 @@
   {
     "id": "task_022",
     "category": "Error Handling",
-    "prompt": "Modify 'agents.py' to add more robust error handling for the 'read_file' tool (e.g., handling binary files).",
+    "prompt": "Only check 'agents.py' and tell me if more robust error handling can be done for the 'read_file' tool (do not edit the file!) (e.g., handling binary files).",
     "expected_output": "Enhanced error handling in agents.py."
   },
   {
@@ -142,5 +142,23 @@
     "category": "Performance Optimization",
     "prompt": "Analyze 'list_files_tool' in 'agents.py' for potential performance issues when dealing with very large directories.",
     "expected_output": "Performance analysis and potential improvements are documented."
+  },
+  {
+    "id": "task_025",
+    "category": "Vision - Image",
+    "prompt": "Analyze the image at 'test_image.jpg' and describe its contents.",
+    "expected_output": "Detailed description of the image is provided."
+  },
+  {
+    "id": "task_026",
+    "category": "Vision - Video",
+    "prompt": "Analyze the video at 'test_video.mp4' and summarize what happens.",
+    "expected_output": "Summary of video events is provided."
+  },
+  {
+    "id": "task_027",
+    "category": "Complex Multi-step",
+    "prompt": "Create a python script that generates a plot using matplotlib, saves it as 'plot.png', and then use the recognize_image tool to verify what was plotted.",
+    "expected_output": "Plot created, saved, and successfully analyzed by vision tool."
   }
 ]
