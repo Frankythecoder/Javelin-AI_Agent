@@ -998,13 +998,28 @@ class Agent:
 
     def _execute_tool_by_name(self, name, args):
         """Find and execute a tool by name."""
+        from chat.models import ToolLog
         print(f"\033[96mTool Call:\033[0m {name}({json.dumps(args)})")
         for tool in self.tools:
             if tool.name == name:
                 try:
-                    return tool.function(args)
+                    result = tool.function(args)
+                    # Save log to database
+                    ToolLog.objects.create(
+                        tool_name=name,
+                        input_args=json.dumps(args),
+                        output_result=str(result)
+                    )
+                    return result
                 except Exception as e:
-                    return f"Error executing tool: {str(e)}"
+                    error_msg = f"Error executing tool: {str(e)}"
+                    # Save error log to database
+                    ToolLog.objects.create(
+                        tool_name=name,
+                        input_args=json.dumps(args),
+                        output_result=error_msg
+                    )
+                    return error_msg
         return f"Tool '{name}' not found"
 
     def _convert_tools_to_openai_format(self):
