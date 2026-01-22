@@ -36,7 +36,7 @@ def read_file_tool(args: Dict[str, Any]) -> str:
     """Read the contents of a given file path (absolute or relative) with enhanced error handling for binary files and size limits."""
     path = args.get('path', '')
     offset = args.get('offset', 0)
-    limit = args.get('limit', 30000)  # Reduced default limit to 30k characters to prevent rate limits
+    limit = args.get('limit', 10000)  # Reduced default limit to 10k characters to prevent rate limits and save tokens
 
     if not path:
         return "No path provided."
@@ -85,29 +85,22 @@ def list_files_tool(args: Dict[str, Any]) -> str:
         if not path:
             path = '.'
 
+        if not os.path.exists(path):
+            return f"Error: Path '{path}' does not exist."
+        
+        if not os.path.isdir(path):
+            return f"Error: Path '{path}' is not a directory."
+
+        entries = os.listdir(path)
         files = []
-        for root, dirs, filenames in os.walk(path):
-            # Get relative path from the starting directory
-            rel_root = os.path.relpath(root, path)
+        for entry in entries:
+            full_path = os.path.join(path, entry)
+            if os.path.isdir(full_path):
+                files.append(f"{entry}/")
+            else:
+                files.append(entry)
 
-            # Add directories with trailing slash
-            for dirname in dirs:
-                if rel_root == '.':
-                    files.append(f"{dirname}/")
-                else:
-                    files.append(f"{rel_root}/{dirname}/")
-
-            # Add files
-            for filename in filenames:
-                if rel_root == '.':
-                    files.append(filename)
-                else:
-                    files.append(f"{rel_root}/{filename}")
-
-        # Remove duplicates and sort
-        files = sorted(list(set(files)))
-
-        return json.dumps(files)
+        return json.dumps(sorted(files))
     except Exception as e:
         return f"Error: {str(e)}"
 
@@ -236,7 +229,16 @@ def run_code_tool(args: Dict[str, Any]) -> str:
             timeout=30
         )
         
-        output = f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        stdout = result.stdout
+        stderr = result.stderr
+        
+        limit = 10000
+        if len(stdout) > limit:
+            stdout = stdout[:limit] + f"\n\n[... STDOUT truncated. Total size: {len(result.stdout)} characters ...]"
+        if len(stderr) > limit:
+            stderr = stderr[:limit] + f"\n\n[... STDERR truncated. Total size: {len(result.stderr)} characters ...]"
+            
+        output = f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}"
         return output
     except subprocess.TimeoutExpired:
         return "Error: Command timed out after 30 seconds"
