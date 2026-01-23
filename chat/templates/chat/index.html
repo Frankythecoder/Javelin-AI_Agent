@@ -2,8 +2,24 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Chat with OpenAI Agent</title>
+    <!-- Add Marked.js for markdown support -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
+        :root {
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --bg-gradient: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            --glass-bg: rgba(255, 255, 255, 0.9);
+            --user-bubble: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+            --agent-bubble: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -11,324 +27,310 @@
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-gradient);
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
+            color: var(--text-main);
             padding: 1rem;
         }
 
         .chat-container {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            border-radius: 24px;
+            box-shadow: var(--shadow);
             width: 100%;
-            max-width: 800px;
-            height: 600px;
+            max-width: 900px;
+            height: 85vh;
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            animation: slideUp 0.8s ease-out;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
         @keyframes slideUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .chat-header {
-            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-            padding: 1.5rem;
-            text-align: center;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .chat-header::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="25" cy="25" r="1" fill="white" opacity="0.1"/><circle cx="75" cy="75" r="1" fill="white" opacity="0.1"/><circle cx="50" cy="10" r="0.5" fill="white" opacity="0.15"/><circle cx="10" cy="60" r="0.8" fill="white" opacity="0.1"/><circle cx="90" cy="40" r="0.6" fill="white" opacity="0.12"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>');
+            padding: 1.25rem 2rem;
+            background: white;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
         }
 
         .chat-header h1 {
-            color: white;
-            font-size: 1.8rem;
-            font-weight: 600;
-            margin: 0;
-            position: relative;
-            z-index: 1;
-            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            font-size: 1.25rem;
+            font-weight: 700;
+            background: var(--user-bubble);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: #10b981;
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
         }
 
         #chatbox {
             flex: 1;
-            padding: 1.5rem;
+            padding: 2rem;
             overflow-y: auto;
-            background: #f8fafc;
-            background-image: 
-                radial-gradient(circle at 25px 25px, rgba(255,255,255,0.3) 2px, transparent 0),
-                radial-gradient(circle at 75px 75px, rgba(255,255,255,0.3) 2px, transparent 0);
-            background-size: 100px 100px;
+            scroll-behavior: smooth;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            background: rgba(248, 250, 252, 0.5);
         }
 
-        #chatbox::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        #chatbox::-webkit-scrollbar-track {
-            background: rgba(0, 0, 0, 0.05);
-            border-radius: 3px;
-        }
-
+        #chatbox::-webkit-scrollbar { width: 6px; }
+        #chatbox::-webkit-scrollbar-track { background: transparent; }
         #chatbox::-webkit-scrollbar-thumb {
-            background: linear-gradient(45deg, #667eea, #764ba2);
-            border-radius: 3px;
+            background: #cbd5e1;
+            border-radius: 10px;
         }
 
         .message {
-            margin-bottom: 1rem;
-            animation: fadeInUp 0.5s ease-out;
+            display: flex;
+            flex-direction: column;
+            max-width: 85%;
+            animation: fadeIn 0.3s ease-out;
         }
 
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
+
+        .message.user { align-self: flex-end; }
+        .message.agent { align-self: flex-start; }
 
         .message-bubble {
-            max-width: 80%;
-            padding: 1rem 1.25rem;
-            border-radius: 18px;
-            position: relative;
-            word-wrap: break-word;
+            padding: 0.875rem 1.25rem;
+            border-radius: 1.25rem;
             font-size: 0.95rem;
-            line-height: 1.4;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            line-height: 1.6;
+            position: relative;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
         }
 
         .user .message-bubble {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: var(--user-bubble);
             color: white;
-            margin-left: auto;
             border-bottom-right-radius: 4px;
         }
 
-        .user .message-bubble::after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            right: -8px;
-            width: 0;
-            height: 0;
-            border: 8px solid transparent;
-            border-left-color: #764ba2;
-            border-bottom: 0;
-        }
-
         .agent .message-bubble {
-            background: white;
-            color: #2d3748;
-            margin-right: auto;
-            border: 1px solid #e2e8f0;
+            background: var(--agent-bubble);
+            color: var(--text-main);
             border-bottom-left-radius: 4px;
+            border: 1px solid var(--border);
         }
 
-        .agent .message-bubble::after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            left: -8px;
-            width: 0;
-            height: 0;
-            border: 8px solid transparent;
-            border-right-color: white;
-            border-bottom: 0;
+        /* Markdown Styling */
+        .message-bubble pre {
+            background: #1e293b;
+            color: #f8fafc;
+            padding: 1rem;
+            border-radius: 0.75rem;
+            overflow-x: auto;
+            margin: 0.75rem 0;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.85rem;
         }
+
+        .message-bubble code {
+            font-family: 'Fira Code', monospace;
+            background: rgba(0, 0, 0, 0.05);
+            padding: 0.2rem 0.4rem;
+            border-radius: 0.25rem;
+            font-size: 0.9em;
+        }
+
+        .user .message-bubble code { background: rgba(255, 255, 255, 0.2); }
+
+        .message-bubble p:not(:last-child) { margin-bottom: 0.75rem; }
+        .message-bubble ul, .message-bubble ol { margin-left: 1.5rem; margin-bottom: 0.75rem; }
 
         .chat-input-container {
+            padding: 1.5rem 2rem;
             background: white;
-            padding: 1.5rem;
-            border-top: 1px solid #e2e8f0;
+            border-top: 1px solid var(--border);
         }
 
         #chat-form {
             display: flex;
-            gap: 0.75rem;
-            align-items: center;
+            gap: 1rem;
+            position: relative;
         }
 
         #message {
             flex: 1;
-            padding: 0.875rem 1.25rem;
-            border: 2px solid #e2e8f0;
-            border-radius: 25px;
+            padding: 0.875rem 1.5rem;
+            border: 1.5px solid var(--border);
+            border-radius: 1rem;
             font-size: 1rem;
             outline: none;
-            transition: all 0.3s ease;
+            transition: all 0.2s;
             background: #f8fafc;
         }
 
         #message:focus {
-            border-color: #667eea;
+            border-color: var(--primary);
             background: white;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
         }
 
-        button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        button[type="submit"] {
+            background: var(--user-bubble);
             color: white;
             border: none;
-            padding: 0.875rem 1.5rem;
-            border-radius: 25px;
-            font-size: 1rem;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.875rem;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
         }
 
-        button::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-            transition: left 0.5s;
+        button[type="submit"]:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
         }
 
-        button:hover::before {
-            left: 100%;
+        /* Tool Approval UI */
+        .tool-card {
+            background: #f1f5f9;
+            border-radius: 12px;
+            padding: 1rem;
+            margin-top: 1rem;
+            border: 1px solid #e2e8f0;
         }
 
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+        .tool-header {
+            font-weight: 600;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
         }
 
-        button:active {
-            transform: translateY(0);
+        .tool-list {
+            list-style: none;
+            margin: 0 !important;
         }
 
-        @media (max-width: 768px) {
-            .chat-container {
-                height: 90vh;
-                margin: 1rem;
-                border-radius: 15px;
-            }
-
-            .chat-header h1 {
-                font-size: 1.5rem;
-            }
-
-            .message-bubble {
-                max-width: 90%;
-                font-size: 0.9rem;
-            }
-
-            #message {
-                font-size: 16px; /* Prevents zoom on iOS */
-            }
+        .tool-item {
+            background: white;
+            padding: 0.75rem;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.8rem;
+            margin-bottom: 0.5rem;
+            border: 1px solid #e2e8f0;
+            overflow-x: auto;
         }
+
+        .approval-actions {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+
+        .btn-approve, .btn-deny {
+            flex: 1;
+            padding: 0.625rem;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .btn-approve { background: #10b981; color: white; }
+        .btn-deny { background: #ef4444; color: white; }
+        .btn-approve:hover, .btn-deny:hover { opacity: 0.9; }
 
         .typing-indicator {
             display: none;
             align-items: center;
-            gap: 0.5rem;
-            color: #64748b;
-            font-style: italic;
-            margin-bottom: 1rem;
+            gap: 0.75rem;
+            padding: 0.5rem 1rem;
+            background: white;
+            border-radius: 1rem;
+            width: fit-content;
+            border: 1px solid var(--border);
+            font-size: 0.875rem;
+            color: var(--text-muted);
         }
 
-        .typing-dots {
-            display: flex;
-            gap: 3px;
-        }
-
-        .typing-dots span {
-            width: 6px;
-            height: 6px;
+        .dots { display: flex; gap: 4px; }
+        .dots span {
+            width: 4px; height: 4px;
+            background: var(--text-muted);
             border-radius: 50%;
-            background: #64748b;
-            animation: typing 1.5s infinite;
+            animation: bounce 1.4s infinite ease-in-out;
+        }
+        .dots span:nth-child(1) { animation-delay: -0.32s; }
+        .dots span:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
         }
 
-        .typing-dots span:nth-child(2) {
-            animation-delay: 0.2s;
-        }
-
-        .typing-dots span:nth-child(3) {
-            animation-delay: 0.4s;
-        }
-
-        @keyframes typing {
-            0%, 60%, 100% {
-                transform: translateY(0);
-                opacity: 0.4;
-            }
-            30% {
-                transform: translateY(-10px);
-                opacity: 1;
-            }
-        }
-
-        .approval-container {
-            margin-top: 10px;
-            display: flex;
-            gap: 10px;
-        }
-
-        .btn-approve {
-            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
-        }
-
-        .btn-deny {
-            background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%);
+        @media (max-width: 640px) {
+            .chat-container { height: 95vh; border-radius: 16px; }
+            .message { max-width: 95%; }
+            .chat-header { padding: 1rem; }
         }
     </style>
 </head>
 <body>
     <div class="chat-container">
-        <div class="chat-header">
-            <h1>Chat with OpenAI Agent</h1>
-        </div>
+        <header class="chat-header">
+            <h1><span class="status-dot"></span> AI Assistant</h1>
+            <div style="font-size: 0.8rem; color: var(--text-muted)">Powered by GPT-4o</div>
+        </header>
         
         <div id="chatbox">
-            <div class="typing-indicator" id="typing-indicator">
-                <span>GPT is typing</span>
-                <div class="typing-dots">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </div>
-            </div>
+            <!-- Messages will appear here -->
+        </div>
+
+        <div class="typing-indicator" id="typing-indicator" style="margin: 0 2rem 1rem;">
+            <span>Agent is thinking</span>
+            <div class="dots"><span></span><span></span><span></span></div>
         </div>
         
         <div class="chat-input-container">
             <form id="chat-form">
-                <input type="text" id="message" autocomplete="off" placeholder="Type your message..." />
-                <button type="submit">Send</button>
+                <input type="text" id="message" autocomplete="off" placeholder="Message AI Assistant..." required />
+                <button type="submit">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                    Send
+                </button>
             </form>
         </div>
     </div>
@@ -341,65 +343,68 @@
         
         let conversationHistory = [];
 
+        // Configure marked.js
+        marked.setOptions({
+            breaks: true,
+            gfm: true,
+            highlight: function(code, lang) {
+                return code; // In a real app, use Highlight.js here
+            }
+        });
+
         function appendMessage(sender, text, isPending = false, pendingTools = null) {
-            const div = document.createElement('div');
-            div.classList.add('message');
-            div.classList.add(sender);
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${sender}`;
             
             const bubble = document.createElement('div');
-            bubble.classList.add('message-bubble');
-            bubble.textContent = text;
+            bubble.className = 'message-bubble';
             
-            if (isPending && pendingTools) {
-                const approvalDiv = document.createElement('div');
-                approvalDiv.classList.add('approval-container');
-                
-                const approveBtn = document.createElement('button');
-                approveBtn.textContent = 'Approve All';
-                approveBtn.classList.add('btn-approve');
-                approveBtn.onclick = () => sendApproval('approved', pendingTools, div);
-                
-                const denyBtn = document.createElement('button');
-                denyBtn.textContent = 'Deny All';
-                denyBtn.classList.add('btn-deny');
-                denyBtn.onclick = () => sendApproval('denied', pendingTools, div);
-                
-                approvalDiv.appendChild(approveBtn);
-                approvalDiv.appendChild(denyBtn);
-                bubble.appendChild(approvalDiv);
-                
-                // Also list the tools
-                const list = document.createElement('ul');
-                list.style.marginTop = '10px';
-                list.style.fontSize = '0.85rem';
-                pendingTools.forEach(tool => {
-                    const item = document.createElement('li');
-                    item.textContent = `${tool.name}: ${JSON.stringify(tool.arguments)}`;
-                    list.appendChild(item);
-                });
-                bubble.appendChild(list);
+            // Render Markdown for agent, plain text for user (security)
+            if (sender === 'agent') {
+                bubble.innerHTML = marked.parse(text);
+            } else {
+                bubble.textContent = text;
             }
             
-            div.appendChild(bubble);
-            chatbox.appendChild(div);
+            if (isPending && pendingTools) {
+                const toolCard = document.createElement('div');
+                toolCard.className = 'tool-card';
+                
+                toolCard.innerHTML = `
+                    <div class="tool-header">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
+                        Action Required
+                    </div>
+                    <div class="tool-list">
+                        ${pendingTools.map(tool => `
+                            <div class="tool-item">
+                                <strong>${tool.name}</strong>(${JSON.stringify(tool.arguments)})
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div class="approval-actions">
+                        <button class="btn-approve" onclick="handleToolApproval('approved', ${JSON.stringify(pendingTools).replace(/"/g, '&quot;')}, this)">Approve All</button>
+                        <button class="btn-deny" onclick="handleToolApproval('denied', ${JSON.stringify(pendingTools).replace(/"/g, '&quot;')}, this)">Deny</button>
+                    </div>
+                `;
+                bubble.appendChild(toolCard);
+            }
+            
+            messageDiv.appendChild(bubble);
+            chatbox.appendChild(messageDiv);
             chatbox.scrollTop = chatbox.scrollHeight;
         }
 
-        async function sendApproval(status, pendingTools, messageDiv) {
-            // Remove approval UI
-            const approvalContainer = messageDiv.querySelector('.approval-container');
-            if (approvalContainer) approvalContainer.remove();
-            const list = messageDiv.querySelector('ul');
-            if (list) list.remove();
+        async function handleToolApproval(status, pendingTools, buttonEl) {
+            const card = buttonEl.closest('.tool-card');
+            card.innerHTML = `<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 0.5rem;">Tool request ${status}...</div>`;
             
             showTypingIndicator();
             
             try {
                 const response = await fetch('/api/chat/', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         status: status,
                         pending_tools: pendingTools,
@@ -411,7 +416,7 @@
                 handleResponse(data);
             } catch (error) {
                 hideTypingIndicator();
-                appendMessage('agent', 'Error sending approval.');
+                appendMessage('agent', '❌ Error processing tool approval.');
                 console.error('Approval failed', error);
             }
         }
@@ -428,18 +433,14 @@
         function handleResponse(data) {
             hideTypingIndicator();
             
-            if (data.history) {
-                conversationHistory = data.history;
-            }
+            if (data.history) conversationHistory = data.history;
             
             if (data.status === 'pending') {
-                appendMessage('agent', data.response, true, data.pending_tools);
+                appendMessage('agent', data.response || 'I need to perform some actions:', true, data.pending_tools);
             } else if (data.response) {
                 appendMessage('agent', data.response);
-            } else if (data.error) {
-                appendMessage('agent', `Error: ${data.error}`);
-            } else if (data.message) {
-                appendMessage('agent', `Error: ${data.message}`);
+            } else if (data.error || data.message) {
+                appendMessage('agent', `⚠️ ${data.error || data.message}`);
             }
         }
 
@@ -455,9 +456,7 @@
             try {
                 const response = await fetch('/api/chat/', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
                         message: message,
                         history: conversationHistory
@@ -468,12 +467,13 @@
                 handleResponse(data);
             } catch (error) {
                 hideTypingIndicator();
-                appendMessage('agent', 'Error sending request.');
+                appendMessage('agent', '❌ Connection error. Please try again.');
                 console.error('Request failed', error);
             }
         });
 
-        // Auto-focus input on page load
+        // Initial welcome message (optional)
+        // appendMessage('agent', 'Hello! How can I help you today?');
         messageInput.focus();
     </script>
 </body>
