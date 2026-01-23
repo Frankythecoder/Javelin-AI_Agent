@@ -1,5 +1,8 @@
 # SECURITY WARNING:
-# The file tools below now accept absolute and relative paths.
+# The file tools below accept absolute and relative paths and searches files broadly in 
+# common folders like 
+# (Downloads, Documents, C:/Users/yourusername, C:/Users/yourusername/anysubfolder, Videos, Pictures, Pictures/Screeshots, 
+# etc) if paths are not provided in the user prompts.
 # This allows reading, writing, deleting, and renaming files anywhere on the system
 # that the process has permission for. Use with caution!
 
