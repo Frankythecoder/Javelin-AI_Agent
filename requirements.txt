@@ -6,3 +6,6 @@ boto3
 django-storages
 pygame
 opencv-python
+pytest
+pylint
+sqlfluff

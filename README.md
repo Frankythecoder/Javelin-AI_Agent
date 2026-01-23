@@ -12,7 +12,10 @@ This project is a Django-based web application that integrates with OpenAI's gen
   Utilizes the `gpt-4o` model for high-performance reasoning and code generation.
 
 - **Agentic File & System Tools:**
-  - **CRUD Operations:** Read, list, create, edit, delete, and rename files of any type.
+  - **Broad Search Capability:** Automatically searches common user directories (Desktop, Documents, Downloads, Pictures, etc.) if a file or directory is not found in the current working directory.
+  - **CRUD Operations:** Read, list, create, edit, delete, and rename files of any type using both **absolute and relative paths**.
+  - **Enhanced Reading:** `read_file` supports character offsets, size limits, and automatically prompts to use vision tools for images.
+  - **Vision & Multimedia:** Built-in support for `recognize_image` and `recognize_video` using GPT-4o vision (requires `opencv-python`).
   - **Sandboxed Execution:** A dedicated `run_code` tool allows the agent to execute shell commands and Python scripts to verify its work.
   - **Self-Reflection:** Built-in system instructions prompt the agent to verify filesystem states and iteratively correct errors.
 
@@ -145,19 +148,34 @@ python evals/metrics.py full_results.json
 
 ---
 
+## How it Works: Broad File Search
+
+The agent is designed to be helpful even when the user provides incomplete paths. When a tool (like `read_file` or `delete_file`) is called with a filename that doesn't exist in the current directory:
+
+1.  **Direct Check**: It first checks if the path is absolute or exists relative to the current directory.
+2.  **Well-Known Folders**: It checks common user folders (Desktop, Documents, Downloads, Pictures, Videos, etc.).
+3.  **Recursive Search**: It performs a limited-depth recursive search (up to 4 levels) in those common directories to find the most likely match.
+4.  **Auto-Resolution**: If found, it automatically resolves to the absolute path for the requested operation.
+
+---
+
 ## Usage
 
 - **Chat with OpenAI:** Use the web UI or POST to `/api/chat/`.
-- **System Tasks:** Ask the agent to "Write a script, run it, and tell me if it passes".
+- **System Tasks:** Ask the agent to "Find the image named 'receipt' on my desktop and tell me what it says".
+- **File Management:** "Create a new python script in a folder called 'scripts' that prints hello world".
 - **Self-Correction:** The agent will automatically attempt to fix errors if a tool execution fails.
 
 ---
 
 ## Security
 
-- File operations are restricted by OS-level permissions.
+> [!WARNING]
+> **High Privilege Access**: The file tools now accept **absolute paths**. This allows the agent to read, write, delete, and rename files anywhere on the system that the process has permission for. Use with extreme caution.
+
+- File operations are restricted by the OS-level permissions of the user running the Django server.
 - API keys are managed via environment variables.
-- Sandboxed execution is performed in the local shell; use with caution in sensitive environments.
+- Sandboxed execution is performed in the local shell; avoid running as Administrator/Root in production environments.
 
 ---
 
