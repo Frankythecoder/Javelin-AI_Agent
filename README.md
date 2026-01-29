@@ -315,12 +315,6 @@ The agent is designed to be helpful even when the user provides incomplete paths
 
 - **Enforce**: Max tools per request, Max execution time, CPU / memory caps, Docker alone is insufficient.
 
-**Bring-Your-Own-Key (BYOK)**
-
-- User provides LLM API keys
-- No proxying through vendor servers
-- No prompt or output logging by default
-
 **Clear Data Flow Disclosure**
 
 - **Plain-English explanation of**: What data stays local, What data is sent to the LLM, What is never uploaded, Critical for trust and legal review.
