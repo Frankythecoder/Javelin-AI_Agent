@@ -86,6 +86,9 @@ def find_file_broadly(filename: str) -> str:
         os.path.join(user_home, "Pictures"),
         os.path.join(user_home, "Pictures", "Screenshots"),
         os.path.join(user_home, "Videos"),
+        os.path.join(user_home, "projects"),
+        os.path.join(user_home, "repos"),
+        os.path.join(user_home, "work"),
         os.getcwd(),
     ]
     
@@ -171,6 +174,9 @@ def find_directory_broadly(dirname: str) -> str:
         os.path.join(user_home, "Downloads"),
         os.path.join(user_home, "Pictures"),
         os.path.join(user_home, "Videos"),
+        os.path.join(user_home, "projects"),
+        os.path.join(user_home, "repos"),
+        os.path.join(user_home, "work"),
         user_home,
         os.getcwd(),
     ]
@@ -335,6 +341,30 @@ def list_files_tool(args: Dict[str, Any]) -> str:
         return f"Error: {str(e)}"
 
 
+def change_working_directory_tool(args: Dict[str, Any]) -> str:
+    """Change the current working directory of the agent to a different project or folder."""
+    path = args.get('path', '')
+    if not path:
+        return "Error: No path provided."
+    
+    actual_path = path
+    if not os.path.exists(path):
+        found_path = find_directory_broadly(path)
+        if found_path:
+            actual_path = found_path
+        else:
+            return f"Error: Directory '{path}' not found and could not be located in common directories."
+    
+    if not os.path.isdir(actual_path):
+        return f"Error: '{actual_path}' is not a directory."
+    
+    try:
+        os.chdir(actual_path)
+        return f"Successfully changed working directory to: {os.getcwd()}"
+    except Exception as e:
+        return f"Error changing directory: {str(e)}"
+
+
 def create_new_file(file_path: str, content: str) -> str:
     """Create a new file with the given content at any path (absolute or relative)."""
     try:
@@ -390,8 +420,8 @@ def create_and_edit_file_tool(args: Dict[str, Any]) -> str:
     """Create or edit any file at any path (absolute or relative) by replacing old_str with new_str, or writing new_str if the file does not exist."""
     try:
         path = args.get('path', '')
-        old_str = args.get('old_str', '')
-        new_str = args.get('new_str', '')
+        old_str = args.get('old_str', '').replace('\\n', '\n')
+        new_str = args.get('new_str', '').replace('\\n', '\n')
 
         if not path:
             return "Error: No path provided."
@@ -984,7 +1014,7 @@ DELETE_FILE_DEFINITION = ToolDefinition(
 # Define the edit_file tool
 CREATE_AND_EDIT_FILE_DEFINITION = ToolDefinition(
     name="create_and_edit_file",
-    description="""Create or edit any file at any path (absolute or relative) by replacing old_str with new_str, or writing new_str if the file does not exist. Supports all file types, including code files such as .cpp, .py, .js, etc.""",
+    description="""Create or edit any file at any path (absolute or relative) by replacing old_str with new_str, or writing new_str if the file does not exist. Supports all file types, including code files such as .cpp, .py, .js, etc. IMPORTANT: Always provide the full code with proper indentation and newlines. Avoid writing code in a single line.""",
     parameters={
         "type": "object",
         "properties": {
@@ -994,11 +1024,11 @@ CREATE_AND_EDIT_FILE_DEFINITION = ToolDefinition(
             },
             "old_str": {
                 "type": "string",
-                "description": "Text to search for - must match exactly and must only have one match exactly"
+                "description": "Text to search for - must match exactly and must only have one match exactly. If you want to replace the entire file content, you can first read it and then provide it here, or use old_str='' to overwrite/create."
             },
             "new_str": {
                 "type": "string",
-                "description": "Text to replace old_str with, or to write if creating a new file"
+                "description": "Text to replace old_str with, or to write if creating a new file. Ensure you use actual newline characters (\\n) and proper indentation for code files."
             }
         },
         "required": ["path", "old_str", "new_str"]
@@ -1214,6 +1244,24 @@ FIND_DIRECTORY_BROADLY_DEFINITION = ToolDefinition(
 )
 
 
+CHANGE_WORKING_DIRECTORY_DEFINITION = ToolDefinition(
+    name="change_working_directory",
+    description="Change the current working directory of the agent to a different project or folder. Use this when you need to work on a different project that is located elsewhere on the system.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "The absolute or relative path to the new directory. If only a folder name is provided, the agent will attempt to find it in common project directories."
+            }
+        },
+        "required": ["path"]
+    },
+    function=change_working_directory_tool,
+    requires_approval=True
+)
+
+
 
 def main():
     # Configure OpenAI with API key
@@ -1235,7 +1283,8 @@ def main():
         RECOGNIZE_IMAGE_DEFINITION,
         RECOGNIZE_VIDEO_DEFINITION,
         FIND_FILE_BROADLY_DEFINITION,
-        FIND_DIRECTORY_BROADLY_DEFINITION
+        FIND_DIRECTORY_BROADLY_DEFINITION,
+        CHANGE_WORKING_DIRECTORY_DEFINITION
     ]
     model_name = 'gpt-4o'
 
@@ -1275,12 +1324,14 @@ class Agent:
            - Static Analysis: Use 'lint_code' to find code smells and potential bugs.
         4. Be concise but thorough.
         5. You have FULL ACCESS to the local filesystem using absolute or relative paths. Do not claim you cannot access or retrieve files; instead, use the provided tools (like 'read_file', 'list_files', or specifying paths in tool arguments) to interact with them.
-        6. Use absolute or relative paths as provided. Default to the current working directory ('.') if no path is explicitly specified. Do not assume previous paths from history apply to new, unrelated tasks.
-        7. If you cannot find a file or directory in the current directory, use the 'search_file' tool or simply use 'read_file', 'list_files', or 'create_and_edit_file' with the name; the system will automatically search common directories (Desktop, Documents, Pictures, etc.) for you.
+        6. Use absolute or relative paths as provided. Default to the current working directory ('.') if no path is explicitly specified. Do not assume previous paths from history apply to new, unrelated tasks. If you need to switch to a different project or directory, use the 'change_working_directory' tool.
+        7. If you cannot find a file or directory in the current directory, use the 'search_file' tool or simply use 'read_file', 'list_files', or 'create_and_edit_file' with the name; the system will automatically search common directories (Desktop, Documents, Pictures, projects, repos, etc.) for you.
         8. If 'read_file' indicates a file is an image, use 'recognize_image' to analyze its contents.
-        9. Do not ask for permission to perform an action; just execute the necessary steps to complete the task.
-        10. In your final summary, avoid using the words "Error" or "Exception" if the task was completed successfully, as these words are used for automated failure detection. Use words like "issue", "problem", or "fault" if you must refer to them.
-        11. ALWAYS report the actual output from tool executions. Never hallucinate or skip reporting the execution results.
+        9. When writing code inside any and all types of code files, write multi-line code and avoid single-line writes.
+        10. Do not ask for permission to perform an action; just execute the necessary steps to complete the task.
+        11. In your final summary, avoid using the words "Error" or "Exception" if the task was completed successfully, as these words are used for automated failure detection. Use words like "issue", "problem", or "fault" if you must refer to them.
+        12. ALWAYS report the actual output from tool executions. Never hallucinate or skip reporting the execution results.
+        13. If the user denies a tool call or action, explicitly state in your response that you could not finish the task because the user denied it.
         """
 
     def chat_once(self, conversation_history=None, message=None):
@@ -1458,7 +1509,8 @@ class Agent:
                     function_name = tool_call.function.name
                     function_args = json.loads(tool_call.function.arguments)
                     
-                    print(f"\033[92mtool\033[0m: {function_name}({json.dumps(function_args)})")
+                    args_str = json.dumps(function_args).replace('\\\\n', '\\n').replace('\\n', '\n')
+                    print(f"\033[92mtool\033[0m: {function_name}({args_str})")
                     
                     # Execute the tool
                     result = self._execute_tool_by_name(function_name, function_args)
@@ -1491,7 +1543,8 @@ class Agent:
     def _execute_tool_by_name(self, name, args):
         """Find and execute a tool by name."""
         from chat.models import ToolLog
-        print(f"\033[96mTool Call:\033[0m {name}({json.dumps(args)})")
+        args_str = json.dumps(args).replace('\\\\n', '\\n').replace('\\n', '\n')
+        print(f"\033[96mTool Call:\033[0m {name}({args_str})")
         for tool in self.tools:
             if tool.name == name:
                 try:

@@ -32,6 +32,7 @@ RECOGNIZE_IMAGE_DEFINITION = agents_module.RECOGNIZE_IMAGE_DEFINITION
 RECOGNIZE_VIDEO_DEFINITION = agents_module.RECOGNIZE_VIDEO_DEFINITION
 FIND_FILE_BROADLY_DEFINITION = agents_module.FIND_FILE_BROADLY_DEFINITION
 FIND_DIRECTORY_BROADLY_DEFINITION = agents_module.FIND_DIRECTORY_BROADLY_DEFINITION
+CHANGE_WORKING_DIRECTORY_DEFINITION = agents_module.CHANGE_WORKING_DIRECTORY_DEFINITION
 
 # Initialize OpenAI agent
 tools = [
@@ -49,7 +50,8 @@ tools = [
     RECOGNIZE_IMAGE_DEFINITION,
     RECOGNIZE_VIDEO_DEFINITION,
     FIND_FILE_BROADLY_DEFINITION,
-    FIND_DIRECTORY_BROADLY_DEFINITION
+    FIND_DIRECTORY_BROADLY_DEFINITION,
+    CHANGE_WORKING_DIRECTORY_DEFINITION
 ]
 model_name = 'gpt-4o'
 agent = Agent(client, model_name, get_user_message=None, tools=tools)
@@ -90,7 +92,7 @@ def chat_api(request):
                         "role": "tool",
                         "tool_call_id": tool_call.get('id'),
                         "name": tool_call.get('name'),
-                        "content": "User denied this tool call."
+                        "content": "The user has denied this tool call/action."
                     })
                 response_data = agent.chat_once(conversation_history=history)
                 return JsonResponse(response_data)
