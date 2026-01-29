@@ -342,11 +342,6 @@ The agent is designed to be helpful even when the user provides incomplete paths
 
 ## Competitive Advantage Recommendations
 
-**Local LLM Mode**
-
-- Ollama / LM Studio support
-- Full offline execution
-
 **Enterprise Policy Files**
 
 Example:
