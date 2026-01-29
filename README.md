@@ -275,13 +275,11 @@ The agent is designed to be helpful even when the user provides incomplete paths
 
 - delete_file
 - rename_file
-
 - **Reason**: High risk of irreversible damage, Legal and compliance concerns
 
 **Broad Filesystem Search by Default**
 
 - Global recursive file discovery
-
 - **Reason**: Privacy violation risk, Accidental exposure of sensitive data
 
 **Video Recognition (Optional Removal)**
