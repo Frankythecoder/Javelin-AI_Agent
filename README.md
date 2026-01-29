@@ -288,32 +288,17 @@ The agent is designed to be helpful even when the user provides incomplete paths
 
 ## Features That MUST Be RESTRICTED (Not Removed)
 
-- **File Access**: Must be sandboxed to user-approved directories only
 - **Default**: no access, Explicit opt-in required
 - **Gmail Integration**: Rate limits per day
 - **Image Recognition**: Business use only (documents, screenshots), No personal photos
 
 ## Features That MUST Be ADDED (Non-Negotiable)
 
-**Permission & Scope System**
-
-- **Persistent permission model**: File read scopes, File write scopes, Email scopes, Browser scopes
-- **Permissions must be**: Explicit, Revocable and Visible to the user
-
 **Immutable System Instructions**
 
 - System prompt must be locked
 - Tool descriptions cannot be overridden
 - Prevent prompt injection and jailbreaks
-
-**Local Audit Timeline**
-
-- Human-readable, exportable log:
-- Timestamp
-- Action
-- Target
-- Approval decision
-- Stored locally and owned by the user.
 
 **Dry-Run Mode**
 
