@@ -319,6 +319,10 @@ The agent is designed to be helpful even when the user provides incomplete paths
 
 - **Plain-English explanation of**: What data stays local, What data is sent to the LLM, What is never uploaded, Critical for trust and legal review.
 
+**Multiple model selection logic for selective tasks and tools**
+
+- **Grok, Anthropic, Gemini and Tavily**: Pick a free tier API key from each and use them distinctively for specific tasks and tools.
+
 ## Competitive Advantage Recommendations
 
 **Enterprise Policy Files**
