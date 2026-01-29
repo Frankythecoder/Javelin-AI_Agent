@@ -454,7 +454,7 @@ AgentState = {
 
 **Callback & Observability Integration**
 
--**Use LangChain callbacks for**: Token usage tracking, Tool invocation logging, Latency measurement, Error reporting
+- **Use LangChain callbacks for**: Token usage tracking, Tool invocation logging, Latency measurement, Error reporting
 - All callback data must remain local by default.
 
 **Migration Strategy (Safe & Incremental)**
