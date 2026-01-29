@@ -377,6 +377,103 @@ browser:
 
 - **Basic heuristics to block**: Instruction override attempts, Privilege escalation prompts
 
+## LangChain & LangGraph Integration Plan
+
+- This agent can be further hardened and modularized by integrating LangChain and LangGraph without changing its core capabilities.
+- The goal of this integration is structure, control, and observability — not adding abstraction for its own sake.
+
+**Why Integrate LangChain?**
+
+- LangChain should be used as a tool orchestration and interface layer, not as the execution engine.
+- **LangChain will provide**:Standardized tool schemas, Consistent tool calling across LLM providers, Easy model swapping (OpenAI, Anthropic, local models), Callback hooks for logging, tracing, and cost tracking
+- **LangChain should NOT**:Access the filesystem directly, Execute shell commands, Bypass Docker or permission checks
+
+**LangChain Architecture Mapping**
+
+- **Current Component	LangChain Equivalent**:
+- Tool definitions	@tool decorators
+- Agent prompt	ChatPromptTemplate
+- Tool routing	AgentExecutor
+- HITL approval	Custom callback / wrapper
+
+**Important rule**:
+
+- LangChain tools must act as thin adapters that call your existing, sandboxed Python functions.
+
+**Why LangGraph Is Critical for Production?**
+
+- LangGraph is strongly recommended for production readiness.
+- **It enables**: Explicit state machines, Deterministic control flow, Retry & failure branches, Human approval nodes, Hard execution boundaries
+- This solves the biggest weakness of free-form agents: uncontrolled execution paths.
+
+**LangGraph State Design**
+
+Recommended shared state:
+
+```sh
+AgentState = {
+  "user_input": str,
+  "plan": list,
+  "approved": bool,
+  "tool_queue": list,
+  "audit_log": list,
+  "permissions": dict,
+  "errors": list
+}
+```
+**Recommended LangGraph Node Layout**
+
+```sh
+[User Input]
+      ↓
+[Planner Node]
+      ↓
+[Permission Check Node]
+      ↓
+[Human Approval Node]
+      ↓
+[Tool Execution Node]
+      ↓
+[Audit Logger Node]
+      ↓
+[Response Node]
+```
+
+- **Each node must be**: Side-effect free (except execution node), Deterministic and Fully logged
+
+**Planner–Executor Separation (Mandatory)**
+
+- **Use LangGraph to enforce a strict split**: Planner, Generates step-by-step plan, No tool execution, Executor, Executes exactly one approved tool per step, Cannot re-plan
+- This prevents runaway autonomy and increases trust.
+
+**Human-in-the-Loop via LangGraph**
+
+- HITL should be a first-class node, not a conditional check.
+- **Capabilities**: Pause graph execution, Resume on approval, Abort cleanly on denial
+- **This allows future upgrades such as**: Multi-user approval, Admin overrides
+
+**Callback & Observability Integration**
+
+-**Use LangChain callbacks for**: Token usage tracking, Tool invocation logging, Latency measurement, Error reporting
+- All callback data must remain local by default.
+
+**Migration Strategy (Safe & Incremental)**
+
+- Wrap existing tools with LangChain adapters
+- Replace direct LLM calls with LangChain models
+- Introduce LangGraph for planning + execution
+- Gradually move logic into graph nodes
+- Lock execution behind approval + scopes
+- No rewrite required.
+
+**What LangChain / LangGraph Must NOT Control**
+
+- Docker sandbox
+- OS-level permissions
+- Gmail credentials
+- File system boundaries
+- These remain outside the agent framework for security reasons.
+
 ## Final Product Positioning
 
 - **A local-first AI operator that works inside your computer, not on someone else’s server.**
