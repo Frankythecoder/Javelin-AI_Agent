@@ -179,17 +179,6 @@ The agent is designed to be helpful even when the user provides incomplete paths
 
 ---
 
-## License
-
-MIT License
-
----
-
-## Acknowledgments
-
-- [OpenAI](https://openai.com/)
-- [Django Framework](https://www.djangoproject.com/)
-
 ## What This Agent Is Currently Capable Of
 
 **Local OS-Level File System Access**
@@ -494,3 +483,14 @@ AgentState = {
 - **The hardest part**: capability — is already built.
 - The remaining work is trust engineering, not AI research.
 - **If these guidelines are followed, this agent becomes**: A professional-grade local AI copilot suitable for real customers, teams, and enterprises.
+
+## License
+
+MIT License
+
+---
+
+## Acknowledgments
+
+- [OpenAI](https://openai.com/)
+- [Django Framework](https://www.djangoproject.com/)
