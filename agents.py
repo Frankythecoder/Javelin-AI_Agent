@@ -7,6 +7,7 @@
 # that the process has permission for. Use with caution!
 
 import os
+import langchain
 import json
 import base64
 import webbrowser

@@ -189,3 +189,381 @@ MIT License
 
 - [OpenAI](https://openai.com/)
 - [Django Framework](https://www.djangoproject.com/)
+
+1. What This Agent Is Currently Capable Of
+1.1 Local OS-Level File System Access
+
+Reads files using absolute or relative paths
+
+Broad file discovery across:
+
+Desktop
+
+Documents
+
+Downloads
+
+Pictures / Videos
+
+OneDrive (where available)
+
+Partial name matching and recursive search
+
+Directory listing
+
+This mimics human-like OS navigation, not API-only access.
+
+1.2 File Creation & Modification
+
+Create new files at arbitrary paths
+
+Edit existing files using string replacement
+
+Rename files
+
+Delete files or entire directories
+
+⚠️ Extremely powerful, but high risk without strict controls.
+
+1.3 Code Execution & Validation
+
+Execute shell commands locally
+
+Run scripts (Python, Node, etc.)
+
+Syntax checking for multiple languages
+
+Run test suites automatically
+
+Run static analysis (linting)
+
+This makes the agent comparable to a junior DevOps / software engineer.
+
+1.4 Gmail Integration (Local Account)
+
+Open Gmail compose window in correct Chrome profile
+
+Create Gmail drafts via IMAP
+
+Attach files programmatically
+
+HTML + plain-text email bodies
+
+Fallback mechanisms if IMAP fails
+
+Email is created inside the user’s own Gmail account, not via third-party servers.
+
+1.5 Browser Automation
+
+Open URLs automatically
+
+Select Chrome profiles based on email identity
+
+1.6 Image & Video Understanding
+
+Image analysis via GPT-4o Vision
+
+Video analysis via frame extraction + vision model
+
+Automatic detection of binary/image files
+
+1.7 Tool-Oriented Agent Architecture
+
+Explicit tool definitions
+
+Tool execution logging
+
+Approval-required tools (HITL)
+
+Automatic retries and follow-up reasoning
+
+1.8 Docker Sandboxing (Implemented)
+
+Agent runs inside Docker container
+
+Isolated execution environment
+
+Resource limits enforced at container level
+
+1.9 Human-in-the-Loop (Implemented)
+
+Approve / deny actions before execution
+
+Manual gating of destructive operations
+
+2. Why This Agent Is More Capable Than Common Agents
+
+Compared to typical SaaS or framework-based agents, this system:
+
+Works directly on the user’s machine
+
+Handles real OS files instead of abstract documents
+
+Interacts with Gmail natively
+
+Executes real commands instead of simulating actions
+
+Requires no cloud-side file uploads
+
+It is best categorized as a:
+
+Local AI Operator / Copilot, not a chatbot
+
+3. Why This Is NOT Yet a Sellable Product
+
+Despite technical power, the agent is currently:
+
+Too permissive
+
+Too broad in scope
+
+Too risky for non-technical buyers
+
+Insufficiently transparent for security review
+
+To sell this agent, power must be converted into controlled, user-consented power.
+
+4. Features That MUST Be REMOVED (or Hard-Disabled)
+4.1 Arbitrary Shell Execution
+
+run_code
+
+Reason:
+
+Severe security risk
+
+Unacceptable for sales, enterprise, or consumer environments
+
+Replacement:
+
+Allowlisted, fixed-function commands only (if any)
+
+4.2 Unrestricted File Deletion & Renaming
+
+delete_file
+
+rename_file
+
+Reason:
+
+High risk of irreversible damage
+
+Legal and compliance concerns
+
+4.3 Broad Filesystem Search by Default
+
+Global recursive file discovery
+
+Reason:
+
+Privacy violation risk
+
+Accidental exposure of sensitive data
+
+4.4 Video Recognition (Optional Removal)
+
+Reason:
+
+High cost
+
+Low ROI for most buyers
+
+Difficult to justify in security reviews
+
+5. Features That MUST Be RESTRICTED (Not Removed)
+5.1 File Access
+
+Must be sandboxed to user-approved directories only
+
+Default: no access
+
+Explicit opt-in required
+
+5.2 Gmail Integration
+
+Draft-only (no auto-send)
+
+Attachments only from approved folders
+
+Mandatory preview before approval
+
+Rate limits per day
+
+5.3 Image Recognition
+
+Business use only (documents, screenshots)
+
+No personal photos
+
+6. Features That MUST Be ADDED (Non-Negotiable)
+6.1 Permission & Scope System
+
+Persistent permission model:
+
+File read scopes
+
+File write scopes
+
+Email scopes
+
+Browser scopes
+
+Permissions must be:
+
+Explicit
+
+Revocable
+
+Visible to the user
+
+6.2 Action Preview UI
+
+Before execution, show:
+
+Files to be read/created/edited
+
+Emails to be drafted
+
+Attachments
+
+No silent execution.
+
+6.3 Immutable System Instructions
+
+System prompt must be locked
+
+Tool descriptions cannot be overridden
+
+Prevent prompt injection and jailbreaks
+
+6.4 Local Audit Timeline
+
+Human-readable, exportable log:
+
+Timestamp
+
+Action
+
+Target
+
+Approval decision
+
+Stored locally and owned by the user.
+
+6.5 Dry-Run Mode
+
+Agent plans actions
+
+Executes nothing
+
+Shows full plan
+
+Recommended default for first-time users.
+
+6.6 Kill Switch
+
+Instant ability to:
+
+Pause agent
+
+Cancel queued actions
+
+Disable all tools
+
+6.7 Resource & Execution Limits
+
+Enforce:
+
+Max tools per request
+
+Max execution time
+
+CPU / memory caps
+
+Docker alone is insufficient.
+
+6.8 Bring-Your-Own-Key (BYOK)
+
+User provides LLM API keys
+
+No proxying through vendor servers
+
+No prompt or output logging by default
+
+6.9 Clear Data Flow Disclosure
+
+Plain-English explanation of:
+
+What data stays local
+
+What data is sent to the LLM
+
+What is never uploaded
+
+Critical for trust and legal review.
+
+7. Strongly Recommended (Competitive Advantage)
+7.1 Local LLM Mode
+
+Ollama / LM Studio support
+
+Full offline execution
+
+7.2 Enterprise Policy Files
+
+Example:
+
+filesystem:
+  read_only: true
+email:
+  enabled: false
+browser:
+  allowed_domains:
+    - gmail.com
+7.3 Prompt Injection Detection
+
+Basic heuristics to block:
+
+Instruction override attempts
+
+Privilege escalation prompts
+
+8. Final Product Positioning
+
+This system should be marketed as:
+
+A local-first AI operator that works inside your computer, not on someone else’s server.
+
+NOT as:
+
+A chatbot
+
+A cloud SaaS agent
+
+An autonomous system
+
+9. Definition of “Sellable”
+
+This agent is sellable when:
+
+Nothing executes without user consent
+
+All access is scoped and revocable
+
+All actions are previewed
+
+All actions are logged
+
+Users can stop it instantly
+
+No unexpected data leaves the machine
+
+10. Final Note
+
+The hardest part — capability — is already built.
+
+The remaining work is trust engineering, not AI research.
+
+If these guidelines are followed, this agent becomes:
+
+A professional-grade local AI copilot suitable for real customers, teams, and enterprises.
