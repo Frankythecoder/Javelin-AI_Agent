@@ -3,6 +3,7 @@ import json
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
+from django.views.decorators.http import require_POST
 from openai import OpenAI
 from decouple import config
 from django.conf import settings
@@ -67,7 +68,7 @@ def chat_api(request):
             user_message = data.get('message', '')
             history = data.get('history', [])
             status = data.get('status')
-            
+            pending_tools = data.get('pending_tools', [])
             if status == 'approved':
                 pending_tools = data.get('pending_tools', [])
                 for tool_call in pending_tools:
@@ -80,6 +81,7 @@ def chat_api(request):
                         "name": tool_call.get('name'),
                         "content": result
                     })
+                agent.control.reset()
                 # Continue chat with the updated history
                 response_data = agent.chat_once(conversation_history=history)
                 return JsonResponse(response_data)
@@ -94,11 +96,20 @@ def chat_api(request):
                         "name": tool_call.get('name'),
                         "content": "The user has denied this tool call/action."
                     })
-                response_data = agent.chat_once(conversation_history=history)
+                if agent.control.cancelled:
+                    agent.control.reset()
+
+                response_data = agent.chat_once(
+                    conversation_history=history,
+                    message=user_message
+                )
                 return JsonResponse(response_data)
 
             if not user_message and not status:
                 return JsonResponse({'error': 'No message provided'}, status=400)
+            if agent.control.cancelled:
+                agent.control.reset()
+
 
             response_data = agent.chat_once(conversation_history=history, message=user_message)
             return JsonResponse(response_data)
@@ -109,3 +120,51 @@ def chat_api(request):
             return JsonResponse({'error': str(e)}, status=500)
 
     return JsonResponse({'error': 'Invalid request'}, status=405)
+@csrf_exempt
+@require_POST
+def agent_control_api(request):
+    try:
+        data = json.loads(request.body)
+        action = data.get("action")
+
+        if not action:
+            return JsonResponse({"error": "No action provided"}, status=400)
+
+        if action == "pause":
+            agent.control.pause()
+        elif action == "resume":
+            agent.control.resume()
+        elif action == "cancel":
+            agent.control.cancel()
+        elif action == "disable_tools":
+            agent.control.disable_tools()
+        elif action == "enable_tools":
+            agent.control.enable_tools()
+        elif action == "reset":
+            agent.control.reset()
+        else:
+            return JsonResponse({"error": "Unknown action"}, status=400)
+
+        message = None
+        if action == "pause":
+            message = "⏸️ Execution paused."
+        elif action == "resume":
+            message = "▶️ Execution resumed."
+        elif action == "cancel":
+            message = "⛔ Execution cancelled."
+        elif action == "disable_tools":
+            message = "🔒 Tool execution disabled."
+        elif action == "enable_tools":
+            message = "🔓 Tool execution enabled."
+
+        return JsonResponse({
+            "message": message,
+            "paused": agent.control.paused,
+            "cancelled": agent.control.cancelled,
+            "tools_enabled": agent.control.tools_enabled
+        })
+
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)

@@ -176,7 +176,6 @@
         #chat-form {
             display: flex;
             gap: 1rem;
-            position: relative;
         }
 
         #message {
@@ -188,6 +187,11 @@
             outline: none;
             transition: all 0.2s;
             background: #f8fafc;
+            resize: none;
+            font-family: inherit;
+            line-height: 1.5;
+            min-height: 48px;
+            max-height: 200px;
         }
 
         #message:focus {
@@ -258,6 +262,23 @@
             margin-top: 1rem;
         }
 
+        .agent-controls {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .agent-controls button {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 1rem;
+            opacity: 0.8;
+        }
+
+        .agent-controls button:hover {
+            opacity: 1;
+        }
+
         .btn-approve, .btn-deny {
             flex: 1;
             padding: 0.625rem;
@@ -313,6 +334,13 @@
         <header class="chat-header">
             <h1><span class="status-dot"></span> AI Agent</h1>
             <div style="font-size: 0.8rem; color: var(--text-muted)">Powered by GPT-4o</div>
+            <div class="agent-controls">
+                <button title="Pause Agent" onclick="controlAgent('pause')">⏸️</button>
+                <button title="Resume Agent" onclick="controlAgent('resume')">▶️</button>
+                <button title="Cancel Execution" onclick="controlAgent('cancel')">⛔</button>
+                <button title="Disable Tools" onclick="controlAgent('disable_tools')">🔒</button>
+                <button title="Enable Tools" onclick="controlAgent('enable_tools')">🔓</button>
+            </div>
         </header>
         
         <div id="chatbox">
@@ -326,7 +354,7 @@
         
         <div class="chat-input-container">
             <form id="chat-form">
-                <input type="text" id="message" autocomplete="off" placeholder="Message AI Assistant..." required />
+                <textarea id="message" autocomplete="off" placeholder="Message AI Assistant..." required rows="1"></textarea>
                 <button type="submit">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                     Send
@@ -451,6 +479,7 @@
             
             appendMessage('user', message);
             messageInput.value = '';
+            messageInput.style.height = 'auto';
             showTypingIndicator();
 
             try {
@@ -471,10 +500,42 @@
                 console.error('Request failed', error);
             }
         });
+        async function controlAgent(action) {
+            try {
+                const res = await fetch('/api/agent/control/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action })
+                });
+
+                const data = await res.json();
+                if (data.message) {
+                    appendMessage('agent', data.message);
+                }
+            } catch (err) {
+                appendMessage('agent', '⚠️ Failed to control agent.');
+                console.error(err);
+            }
+        }
 
         // Initial welcome message (optional)
         // appendMessage('agent', 'Hello! How can I help you today?');
         messageInput.focus();
+
+        // Handle Shift + Enter for new lines, Enter for submit
+        messageInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                chatForm.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+            }
+        });
+
+        // Auto-resize textarea
+        messageInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+        });
+
     </script>
 </body>
 </html>

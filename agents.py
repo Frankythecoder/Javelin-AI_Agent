@@ -8,6 +8,7 @@
 
 import os
 import langchain
+import threading
 import json
 import base64
 import webbrowser
@@ -29,6 +30,38 @@ from openai import OpenAI
 from typing import Dict, List, Callable, Any
 from django.conf import settings
 
+class AgentControlState:
+    def __init__(self):
+        self.paused = False
+        self.cancelled = False
+        self.tools_enabled = True
+        self.lock = threading.Lock()
+
+    def pause(self):
+        with self.lock:
+            self.paused = True
+
+    def resume(self):
+        with self.lock:
+            self.paused = False
+
+    def cancel(self):
+        with self.lock:
+            self.cancelled = True
+
+    def reset(self):
+        with self.lock:
+            self.paused = False
+            self.cancelled = False
+            self.tools_enabled = True
+
+    def disable_tools(self):
+        with self.lock:
+            self.tools_enabled = False
+
+    def enable_tools(self):
+        with self.lock:
+            self.tools_enabled = True
 
 class ToolDefinition:
     def __init__(self, name: str, description: str, parameters: Dict[str, Any], function: Callable[[Dict[str, Any]], str], requires_approval: bool = False):
@@ -1262,6 +1295,37 @@ CHANGE_WORKING_DIRECTORY_DEFINITION = ToolDefinition(
 )
 
 
+def is_prompt_injection(text: str) -> bool:
+    """Detect potential prompt injection attempts using basic heuristics."""
+    if not text:
+        return False
+        
+    injection_patterns = [
+        # Instruction override attempts
+        r"ignore\s+(all\s+)?previous\s+instructions",
+        r"disregard\s+(all\s+)?earlier\s+commands",
+        r"system\s+override",
+        r"new\s+instructions\s+follow",
+        r"stop\s+being\s+an\s+assistant",
+        r"you\s+must\s+now",
+        
+        # Privilege escalation prompts
+        r"you\s+are\s+now\s+(an\s+)?admin",
+        r"act\s+as\s+root",
+        r"bypass\s+restrictions",
+        r"enable\s+developer\s+mode",
+        r"grant\s+(administrative|admin)\s+access",
+        r"sudo\s+",
+        r"execute\s+as\s+root"
+    ]
+    
+    text_lower = text.lower()
+    for pattern in injection_patterns:
+        if re.search(pattern, text_lower):
+            return True
+            
+    return False
+
 
 def main():
     # Configure OpenAI with API key
@@ -1309,6 +1373,8 @@ class Agent:
         self.get_user_message = get_user_message
         self.tools = tools
         self.max_history = max_history
+        self.control = AgentControlState()
+
         
         # Initialize tools for OpenAI usage
         self.openai_tools = self._convert_tools_to_openai_format()
@@ -1346,6 +1412,14 @@ class Agent:
             Dict containing status and response/tool info
         """
         try:
+            if self.control.cancelled:
+                return {
+                    "status": "cancelled",
+                    "response": "⛔ Agent execution was cancelled."
+                }
+
+            while self.control.paused:
+                time.sleep(0.1)
             messages = [
                 {"role": "system", "content": self.system_instruction}
             ]
@@ -1374,6 +1448,8 @@ class Agent:
             
             # If a new message is provided, append it
             if message:
+                if is_prompt_injection(message):
+                    return {"status": "error", "message": "Security Warning: Potential prompt injection detected. Message blocked."}
                 messages.append({"role": "user", "content": message})
             
             # Send the message and get response
@@ -1395,6 +1471,11 @@ class Agent:
         Process response for API usage - returns structured response.
         """
         try:
+            if self.control.cancelled:
+                return {
+                    "status": "cancelled",
+                    "response": "⛔ Execution cancelled mid-response."
+                }
             message = response.choices[0].message
             
             # Convert message to dict for storage/history
@@ -1467,6 +1548,13 @@ class Agent:
         ]
 
         while True:
+            if self.control.cancelled:
+                print("⛔ Agent execution cancelled.")
+                break
+
+            # ⏸️ KILL SWITCH: pause execution
+            while self.control.paused:
+                time.sleep(0.1)
             print("\033[94mYou\033[0m: ", end="")
             user_input, ok = self.get_user_message()
             if not ok:
@@ -1542,6 +1630,14 @@ class Agent:
 
     def _execute_tool_by_name(self, name, args):
         """Find and execute a tool by name."""
+        if self.control.cancelled:
+            return "⛔ Agent execution cancelled."
+
+        if not self.control.tools_enabled:
+            return "🔒 Tool execution disabled by kill switch."
+
+        while self.control.paused:
+            time.sleep(0.1)
         from chat.models import ToolLog
         args_str = json.dumps(args).replace('\\\\n', '\\n').replace('\\n', '\n')
         print(f"\033[96mTool Call:\033[0m {name}({args_str})")
@@ -1618,6 +1714,9 @@ class Agent:
         Returns:
             str: Generated code.
         """
+        if is_prompt_injection(task_description):
+            return "Security Warning: Potential prompt injection detected in task description. Generation blocked."
+
         if stepwise:
             prompt = (
                 f"""
