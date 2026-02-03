@@ -10,3 +10,7 @@ pytest
 pylint
 sqlfluff
 langchain
+reportlab
+python-docx
+openpyxl
+python-pptx

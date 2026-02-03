@@ -30,6 +30,13 @@ from openai import OpenAI
 from typing import Dict, List, Callable, Any
 from django.conf import settings
 
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from docx import Document
+from openpyxl import Workbook
+from pptx import Presentation
+
+
 class AgentControlState:
     def __init__(self):
         self.paused = False
@@ -1295,11 +1302,296 @@ CHANGE_WORKING_DIRECTORY_DEFINITION = ToolDefinition(
 )
 
 
+CREATE_PDF_DEFINITION = ToolDefinition(
+    name="create_pdf",
+    description="Create a PDF file with improved layout, structure, and diagrams. Supports custom title, introduction, and additional content.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "filename": {
+                "type": "string",
+                "description": "The path and filename for the PDF file to create."
+            },
+            "title": {
+                "type": "string",
+                "description": "The title to display at the top of the PDF."
+            },
+            "introduction": {
+                "type": "string",
+                "description": "The introduction text to include in the PDF."
+            },
+            "content": {
+                "type": "string",
+                "description": "Additional content to include in the PDF."
+            }
+        },
+        "required": ["filename"]
+    },
+    function=lambda args: create_pdf(
+        args.get('filename'),
+        args.get('title', "AI Agent Project Report"),
+        args.get('introduction', "The AI Agent is a dynamic system built with Django framework, integrating advanced AI capabilities."),
+        args.get('content', "")
+    )
+)
+
+
+CREATE_DOCX_DEFINITION = ToolDefinition(
+    name="create_docx",
+    description="Create a DOCX file with improved layout, structure, and diagrams. Supports custom title, introduction, and additional content.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "filename": {
+                "type": "string",
+                "description": "The path and filename for the DOCX file to create."
+            },
+            "title": {
+                "type": "string",
+                "description": "The title to display at the top of the document."
+            },
+            "introduction": {
+                "type": "string",
+                "description": "The introduction text to include in the document."
+            },
+            "content": {
+                "type": "string",
+                "description": "Additional content to include in the document."
+            }
+        },
+        "required": ["filename"]
+    },
+    function=lambda args: create_docx(
+        args.get('filename'),
+        args.get('title', "AI Agent Project Report"),
+        args.get('introduction', "The AI Agent is a dynamic system built with Django framework, integrating advanced AI capabilities."),
+        args.get('content', "")
+    )
+)
+
+
+CREATE_EXCEL_DEFINITION = ToolDefinition(
+    name="create_excel",
+    description="Create an XLSX file with improved layout, structure, and diagrams. Supports custom title and data.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "filename": {
+                "type": "string",
+                "description": "The path and filename for the XLSX file to create."
+            },
+            "title": {
+                "type": "string",
+                "description": "The title to display at the top of the spreadsheet."
+            },
+            "data": {
+                "type": "array",
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "description": "Array of arrays representing rows of data to include in the spreadsheet."
+            }
+        },
+        "required": ["filename"]
+    },
+    function=lambda args: create_excel(
+        args.get('filename'),
+        args.get('title', "AI Agent Project Report"),
+        args.get('data')
+    )
+)
+
+
+CREATE_PPTX_DEFINITION = ToolDefinition(
+    name="create_pptx",
+    description="Create a PPTX file with improved layout, structure, and diagrams. Supports custom title and subtitle.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "filename": {
+                "type": "string",
+                "description": "The path and filename for the PPTX file to create."
+            },
+            "title": {
+                "type": "string",
+                "description": "The title for the presentation."
+            },
+            "subtitle": {
+                "type": "string",
+                "description": "The subtitle for the presentation."
+            }
+        },
+        "required": ["filename"]
+    },
+    function=lambda args: create_pptx(
+        args.get('filename'),
+        args.get('title', "AI Agent Project"),
+        args.get('subtitle', "Integration of advanced AI capabilities with Django")
+    )
+)
+
+
+def create_pdf(filename: str, title: str = "AI Agent Project Report", introduction: str = "The AI Agent is a dynamic system built with Django framework, integrating advanced AI capabilities.", content: str = "") -> str:
+    """Create a PDF file with improved layout, structure, and diagrams."""
+    try:
+        c = canvas.Canvas(filename, pagesize=letter)
+        width, height = letter
+
+        # Title
+        c.setFont("Helvetica-Bold", 16)
+        c.drawCentredString(width / 2, height - 50, title)
+
+        # Introduction
+        c.setFont("Helvetica", 12)
+        y_position = height - 100
+        for line in introduction.split('\n'):
+            c.drawString(50, y_position, line)
+            y_position -= 15
+
+        # Additional content
+        if content:
+            c.setFont("Helvetica", 10)
+            y_position -= 20
+            for line in content.split('\n'):
+                if y_position < 50:
+                    c.showPage()
+                    y_position = height - 50
+                c.drawString(50, y_position, line)
+                y_position -= 12
+
+        # Simple diagram (rectangle)
+        c.setStrokeColorRGB(0, 0, 1)
+        c.rect(50, 100, 200, 100)
+        c.drawString(60, 180, "AI Agent Architecture")
+        c.drawString(60, 160, "- Django Backend")
+        c.drawString(60, 140, "- OpenAI Integration")
+        c.drawString(60, 120, "- File Processing")
+
+        c.save()
+        return f"Successfully created PDF: {filename}"
+    except Exception as e:
+        return f"Error creating PDF: {str(e)}"
+
+
+def create_docx(filename: str, title: str = "AI Agent Project Report", introduction: str = "The AI Agent is a dynamic system built with Django framework, integrating advanced AI capabilities.", content: str = "") -> str:
+    """Create a DOCX file with improved layout, structure, and diagrams."""
+    try:
+        doc = Document()
+        doc.add_heading(title, 0)
+
+        doc.add_heading('Introduction', level=1)
+        doc.add_paragraph(introduction)
+
+        if content:
+            doc.add_heading('Details', level=1)
+            doc.add_paragraph(content)
+
+        # Add a table
+        table = doc.add_table(rows=1, cols=2)
+        hdr_cells = table.rows[0].cells
+        hdr_cells[0].text = 'Component'
+        hdr_cells[1].text = 'Description'
+        row_cells = table.add_row().cells
+        row_cells[0].text = 'Django Framework'
+        row_cells[1].text = 'Backend for web application'
+        row_cells = table.add_row().cells
+        row_cells[0].text = 'OpenAI API'
+        row_cells[1].text = 'AI capabilities integration'
+
+        doc.save(filename)
+        return f"Successfully created DOCX: {filename}"
+    except Exception as e:
+        return f"Error creating DOCX: {str(e)}"
+
+
+def create_excel(filename: str, title: str = "AI Agent Project Report", data: List[List[str]] = None) -> str:
+    """Create an XLSX file with improved layout, structure, and diagrams."""
+    try:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Report"
+
+        # Title
+        ws['A1'] = title
+        ws['A1'].font = ws['A1'].font.copy(bold=True, size=14)
+
+        # Default data if not provided
+        if not data:
+            data = [
+                ["Section", "Description"],
+                ["Introduction", "The AI Agent integrates advanced AI capabilities with Django."],
+                ["Features", "File creation, tool execution, AI chat"],
+                ["Technologies", "Python, Django, OpenAI, ReportLab"]
+            ]
+
+        for row in data:
+            ws.append(row)
+
+        # Add some formatting
+        from openpyxl.styles import Border, Side
+        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+        for row in ws.iter_rows():
+            for cell in row:
+                cell.border = thin_border
+
+        wb.save(filename)
+        return f"Successfully created XLSX: {filename}"
+    except Exception as e:
+        return f"Error creating XLSX: {str(e)}"
+
+
+def create_pptx(filename: str, title: str = "AI Agent Project", subtitle: str = "Integration of advanced AI capabilities with Django") -> str:
+    """Create a PPTX file with improved layout, structure, and diagrams."""
+    try:
+        prs = Presentation()
+
+        # Title slide
+        slide_layout = prs.slide_layouts[0]
+        slide = prs.slides.add_slide(slide_layout)
+        title_placeholder = slide.shapes.title
+        subtitle_placeholder = slide.placeholders[1]
+        title_placeholder.text = title
+        subtitle_placeholder.text = subtitle
+
+        # Content slide
+        slide_layout = prs.slide_layouts[1]
+        slide = prs.slides.add_slide(slide_layout)
+        shapes = slide.shapes
+        title_shape = shapes.title
+        body_shape = shapes.placeholders[1]
+        title_shape.text = 'Key Features'
+        tf = body_shape.text_frame
+        tf.text = 'Advanced AI Integration'
+        p = tf.add_paragraph()
+        p.text = 'Django Backend'
+        p.level = 1
+        p = tf.add_paragraph()
+        p.text = 'File Processing Tools'
+        p.level = 1
+
+        # Diagram slide (simple shapes)
+        slide_layout = prs.slide_layouts[5]  # Blank slide
+        slide = prs.slides.add_slide(slide_layout)
+        shapes = slide.shapes
+        shapes.title.text = 'Architecture Diagram'
+        left = top = width = height = 1.5 * 914400  # Inches to EMU
+        shape = shapes.add_shape(1, left, top, width, height)  # Rectangle
+        shape.text = 'AI Agent System'
+
+        prs.save(filename)
+        return f"Successfully created PPTX: {filename}"
+    except Exception as e:
+        return f"Error creating PPTX: {str(e)}"
+
+
 def is_prompt_injection(text: str) -> bool:
     """Detect potential prompt injection attempts using basic heuristics."""
     if not text:
         return False
-        
+
     injection_patterns = [
         # Instruction override attempts
         r"ignore\s+(all\s+)?previous\s+instructions",
@@ -1308,7 +1600,7 @@ def is_prompt_injection(text: str) -> bool:
         r"new\s+instructions\s+follow",
         r"stop\s+being\s+an\s+assistant",
         r"you\s+must\s+now",
-        
+
         # Privilege escalation prompts
         r"you\s+are\s+now\s+(an\s+)?admin",
         r"act\s+as\s+root",
@@ -1318,12 +1610,12 @@ def is_prompt_injection(text: str) -> bool:
         r"sudo\s+",
         r"execute\s+as\s+root"
     ]
-    
+
     text_lower = text.lower()
     for pattern in injection_patterns:
         if re.search(pattern, text_lower):
             return True
-            
+
     return False
 
 
@@ -1334,11 +1626,11 @@ def main():
     # Create the model with tools
     tools = [
         SEARCH_FILE_DEFINITION,
-        READ_FILE_DEFINITION, 
-        LIST_FILES_DEFINITION, 
-        CREATE_AND_EDIT_FILE_DEFINITION, 
-        DELETE_FILE_DEFINITION, 
-        RENAME_FILE_DEFINITION, 
+        READ_FILE_DEFINITION,
+        LIST_FILES_DEFINITION,
+        CREATE_AND_EDIT_FILE_DEFINITION,
+        DELETE_FILE_DEFINITION,
+        RENAME_FILE_DEFINITION,
         RUN_CODE_DEFINITION,
         CHECK_SYNTAX_DEFINITION,
         RUN_TESTS_DEFINITION,
@@ -1348,7 +1640,11 @@ def main():
         RECOGNIZE_VIDEO_DEFINITION,
         FIND_FILE_BROADLY_DEFINITION,
         FIND_DIRECTORY_BROADLY_DEFINITION,
-        CHANGE_WORKING_DIRECTORY_DEFINITION
+        CHANGE_WORKING_DIRECTORY_DEFINITION,
+        CREATE_PDF_DEFINITION,
+        CREATE_DOCX_DEFINITION,
+        CREATE_EXCEL_DEFINITION,
+        CREATE_PPTX_DEFINITION
     ]
     model_name = 'gpt-4o'
 
