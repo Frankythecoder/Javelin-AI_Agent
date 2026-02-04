@@ -9,6 +9,7 @@
 import os
 import langchain
 import threading
+import requests
 import json
 import base64
 import webbrowser
@@ -379,6 +380,24 @@ def list_files_tool(args: Dict[str, Any]) -> str:
         return json.dumps(sorted(files))
     except Exception as e:
         return f"Error: {str(e)}"
+    
+def playwright_mcp_tool(args):
+    try:
+        response = requests.post(
+            "http://localhost:7001/invoke",
+            json={
+                "tool": "navigate",
+                "arguments": args
+            },
+            timeout=120
+        )
+    except requests.exceptions.ConnectionError:
+        return "Playwright MCP server is not running. Start it first: python mcp_playwright_server.py"
+
+    if response.status_code != 200:
+        return f"Playwright MCP error: {response.text}"
+
+    return json.dumps(response.json())
 
 
 def change_working_directory_tool(args: Dict[str, Any]) -> str:
@@ -616,6 +635,24 @@ def run_tests_tool(args: Dict[str, Any]) -> str:
             return "Error: no test command provided and could not infer one"
     
     return run_code_tool({'command': command})
+
+def github_mcp_tool(args):
+    try:
+        response = requests.post(
+            "http://localhost:7002/invoke",
+            json={
+                "tool": "create_pull_request",
+                "arguments": args
+            },
+            timeout=60
+        )
+    except requests.exceptions.ConnectionError:
+        return "GitHub MCP server is not running. Start it first: python mcp_github_server.py"
+
+    if response.status_code != 200:
+        return f"GitHub MCP error: {response.text}"
+
+    return json.dumps(response.json())
 
 
 def lint_code_tool(args: Dict[str, Any]) -> str:
@@ -1076,6 +1113,40 @@ CREATE_AND_EDIT_FILE_DEFINITION = ToolDefinition(
     function=create_and_edit_file_tool,
     requires_approval=True
 )
+
+GITHUB_MCP_DEFINITION = ToolDefinition(
+    name="github_create_pr",
+    description="Create a GitHub pull request via MCP server",
+    parameters={
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "head": {"type": "string"},
+            "base": {"type": "string"},
+            "body": {"type": "string"}
+        },
+        "required": ["title", "head"]
+    },
+    function=github_mcp_tool,
+    requires_approval=True
+)
+
+
+PLAYWRIGHT_MCP_DEFINITION = ToolDefinition(
+    name="playwright_navigate",
+    description="Navigate websites using Playwright MCP server",
+    parameters={
+        "type": "object",
+        "properties": {
+            "url": {"type": "string"},
+            "screenshot": {"type": "string"}
+        },
+        "required": ["url"]
+    },
+    function=playwright_mcp_tool,
+    requires_approval=True
+)
+
 
 
 RENAME_FILE_DEFINITION = ToolDefinition(
@@ -1644,7 +1715,9 @@ def main():
         CREATE_PDF_DEFINITION,
         CREATE_DOCX_DEFINITION,
         CREATE_EXCEL_DEFINITION,
-        CREATE_PPTX_DEFINITION
+        CREATE_PPTX_DEFINITION,
+        GITHUB_MCP_DEFINITION,
+        PLAYWRIGHT_MCP_DEFINITION
     ]
     model_name = 'gpt-4o'
 

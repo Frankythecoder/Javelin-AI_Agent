@@ -14,3 +14,7 @@ reportlab
 python-docx
 openpyxl
 python-pptx
+pydantic
+mcp>=1.2.0
+requests
+playwright
