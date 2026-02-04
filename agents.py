@@ -382,22 +382,27 @@ def list_files_tool(args: Dict[str, Any]) -> str:
         return f"Error: {str(e)}"
     
 def playwright_mcp_tool(args):
-    try:
-        response = requests.post(
-            "http://localhost:7001/invoke",
-            json={
-                "tool": "navigate",
-                "arguments": args
-            },
-            timeout=120
+    import asyncio
+    import sys
+    from mcp import ClientSession
+    from mcp.client.stdio import stdio_client, StdioServerParameters
+
+    async def _call():
+        server_params = StdioServerParameters(
+            command=sys.executable,
+            args=["-B", os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_playwright_server.py")],
+            cwd=os.path.dirname(os.path.abspath(__file__))
         )
-    except requests.exceptions.ConnectionError:
-        return "Playwright MCP server is not running. Start it first: python mcp_playwright_server.py"
+        async with stdio_client(server_params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool("navigate", args)
+                return result.content[0].text if result.content else ""
 
-    if response.status_code != 200:
-        return f"Playwright MCP error: {response.text}"
-
-    return json.dumps(response.json())
+    try:
+        return asyncio.run(_call())
+    except Exception as e:
+        return f"Playwright MCP error: {e}"
 
 
 def change_working_directory_tool(args: Dict[str, Any]) -> str:
@@ -636,23 +641,44 @@ def run_tests_tool(args: Dict[str, Any]) -> str:
     
     return run_code_tool({'command': command})
 
-def github_mcp_tool(args):
-    try:
-        response = requests.post(
-            "http://localhost:7002/invoke",
-            json={
-                "tool": "create_pull_request",
-                "arguments": args
-            },
-            timeout=60
+def _github_mcp_call(tool_name, args):
+    import asyncio
+    import sys
+    from mcp import ClientSession
+    from mcp.client.stdio import stdio_client, StdioServerParameters
+
+    async def _call():
+        server_params = StdioServerParameters(
+            command=sys.executable,
+            args=["-B", os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_github_server.py")],
+            cwd=os.path.dirname(os.path.abspath(__file__))
         )
-    except requests.exceptions.ConnectionError:
-        return "GitHub MCP server is not running. Start it first: python mcp_github_server.py"
+        async with stdio_client(server_params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool(tool_name, args)
+                return result.content[0].text if result.content else ""
 
-    if response.status_code != 200:
-        return f"GitHub MCP error: {response.text}"
+    try:
+        return asyncio.run(_call())
+    except Exception as e:
+        return f"GitHub MCP error: {e}"
 
-    return json.dumps(response.json())
+
+def github_create_pr_tool(args):
+    return _github_mcp_call("create_pull_request", args)
+
+
+def github_create_branch_tool(args):
+    return _github_mcp_call("create_branch", args)
+
+
+def github_commit_file_tool(args):
+    return _github_mcp_call("commit_file", args)
+
+
+def github_commit_local_file_tool(args):
+    return _github_mcp_call("commit_local_file", args)
 
 
 def lint_code_tool(args: Dict[str, Any]) -> str:
@@ -1114,20 +1140,69 @@ CREATE_AND_EDIT_FILE_DEFINITION = ToolDefinition(
     requires_approval=True
 )
 
-GITHUB_MCP_DEFINITION = ToolDefinition(
-    name="github_create_pr",
-    description="Create a GitHub pull request via MCP server",
+GITHUB_CREATE_BRANCH_DEFINITION = ToolDefinition(
+    name="github_create_branch",
+    description="Step 1 of 3: Create a new branch on the configured GitHub repository. Call this FIRST before committing files or creating a PR. Do NOT use run_code with git for GitHub operations — use these MCP tools instead.",
     parameters={
         "type": "object",
         "properties": {
-            "title": {"type": "string"},
-            "head": {"type": "string"},
-            "base": {"type": "string"},
-            "body": {"type": "string"}
+            "name": {"type": "string", "description": "Name of the new branch"},
+            "source": {"type": "string", "description": "Branch to create from (default: main)"}
+        },
+        "required": ["name"]
+    },
+    function=github_create_branch_tool,
+    requires_approval=True
+)
+
+GITHUB_COMMIT_FILE_DEFINITION = ToolDefinition(
+    name="github_commit_file",
+    description="Step 2 of 3: Commit a file with given content to a branch on the configured GitHub repository. Use when file content is provided in the prompt. Call AFTER github_create_branch, BEFORE github_create_pr.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "File path in the repo"},
+            "content": {"type": "string", "description": "Full file content to commit"},
+            "message": {"type": "string", "description": "Commit message"},
+            "branch": {"type": "string", "description": "Target branch"}
+        },
+        "required": ["path", "content", "message", "branch"]
+    },
+    function=github_commit_file_tool,
+    requires_approval=True
+)
+
+GITHUB_COMMIT_LOCAL_FILE_DEFINITION = ToolDefinition(
+    name="github_commit_local_file",
+    description="Step 2 of 3: Read a local file and commit it to a branch on the configured GitHub repository. Use when committing an existing local file. Call AFTER github_create_branch, BEFORE github_create_pr.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "local_path": {"type": "string", "description": "Local file path to read"},
+            "message": {"type": "string", "description": "Commit message"},
+            "branch": {"type": "string", "description": "Target branch"},
+            "remote_path": {"type": "string", "description": "Path in repo (defaults to filename)"}
+        },
+        "required": ["local_path", "message", "branch"]
+    },
+    function=github_commit_local_file_tool,
+    requires_approval=True
+)
+
+GITHUB_MCP_DEFINITION = ToolDefinition(
+    name="github_create_pr",
+    description="Step 3 of 3: Create a GitHub pull request on the configured repository. ONLY call this AFTER a branch has been created (github_create_branch) and at least one file committed to it (github_commit_file or github_commit_local_file). Do NOT use run_code with git for any GitHub operations.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "description": "Title for the pull request"},
+            "head": {"type": "string", "description": "The source branch with changes"},
+            "base": {"type": "string", "description": "The target branch (default: main)"},
+            "body": {"type": "string", "description": "Pull request description"}
         },
         "required": ["title", "head"]
     },
-    function=github_mcp_tool,
+    function=github_create_pr_tool,
     requires_approval=True
 )
 
@@ -1716,6 +1791,9 @@ def main():
         CREATE_DOCX_DEFINITION,
         CREATE_EXCEL_DEFINITION,
         CREATE_PPTX_DEFINITION,
+        GITHUB_CREATE_BRANCH_DEFINITION,
+        GITHUB_COMMIT_FILE_DEFINITION,
+        GITHUB_COMMIT_LOCAL_FILE_DEFINITION,
         GITHUB_MCP_DEFINITION,
         PLAYWRIGHT_MCP_DEFINITION
     ]
@@ -1767,6 +1845,7 @@ class Agent:
         11. In your final summary, avoid using the words "Error" or "Exception" if the task was completed successfully, as these words are used for automated failure detection. Use words like "issue", "problem", or "fault" if you must refer to them.
         12. ALWAYS report the actual output from tool executions. Never hallucinate or skip reporting the execution results.
         13. If the user denies a tool call or action, explicitly state in your response that you could not finish the task because the user denied it.
+        14. For ALL GitHub operations (creating branches, committing files, raising pull requests), use ONLY the github_create_branch, github_commit_file, github_commit_local_file, and github_create_pr MCP tools. NEVER use run_code with git commands for GitHub operations. The workflow is: Step 1: github_create_branch -> Step 2: github_commit_file or github_commit_local_file -> Step 3: github_create_pr.
         """
 
     def chat_once(self, conversation_history=None, message=None):
