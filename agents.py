@@ -382,22 +382,27 @@ def list_files_tool(args: Dict[str, Any]) -> str:
         return f"Error: {str(e)}"
     
 def playwright_mcp_tool(args):
-    try:
-        response = requests.post(
-            "http://localhost:7001/invoke",
-            json={
-                "tool": "navigate",
-                "arguments": args
-            },
-            timeout=120
+    import asyncio
+    import sys
+    from mcp import ClientSession
+    from mcp.client.stdio import stdio_client, StdioServerParameters
+
+    async def _call():
+        server_params = StdioServerParameters(
+            command=sys.executable,
+            args=["-B", os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_playwright_server.py")],
+            cwd=os.path.dirname(os.path.abspath(__file__))
         )
-    except requests.exceptions.ConnectionError:
-        return "Playwright MCP server is not running. Start it first: python mcp_playwright_server.py"
+        async with stdio_client(server_params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool("navigate", args)
+                return result.content[0].text if result.content else ""
 
-    if response.status_code != 200:
-        return f"Playwright MCP error: {response.text}"
-
-    return json.dumps(response.json())
+    try:
+        return asyncio.run(_call())
+    except Exception as e:
+        return f"Playwright MCP error: {e}"
 
 
 def change_working_directory_tool(args: Dict[str, Any]) -> str:
@@ -637,22 +642,27 @@ def run_tests_tool(args: Dict[str, Any]) -> str:
     return run_code_tool({'command': command})
 
 def github_mcp_tool(args):
-    try:
-        response = requests.post(
-            "http://localhost:7002/invoke",
-            json={
-                "tool": "create_pull_request",
-                "arguments": args
-            },
-            timeout=60
+    import asyncio
+    import sys
+    from mcp import ClientSession
+    from mcp.client.stdio import stdio_client, StdioServerParameters
+
+    async def _call():
+        server_params = StdioServerParameters(
+            command=sys.executable,
+            args=["-B", os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_github_server.py")],
+            cwd=os.path.dirname(os.path.abspath(__file__))
         )
-    except requests.exceptions.ConnectionError:
-        return "GitHub MCP server is not running. Start it first: python mcp_github_server.py"
+        async with stdio_client(server_params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool("create_pull_request", args)
+                return result.content[0].text if result.content else ""
 
-    if response.status_code != 200:
-        return f"GitHub MCP error: {response.text}"
-
-    return json.dumps(response.json())
+    try:
+        return asyncio.run(_call())
+    except Exception as e:
+        return f"GitHub MCP error: {e}"
 
 
 def lint_code_tool(args: Dict[str, Any]) -> str:
