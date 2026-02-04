@@ -404,7 +404,6 @@ def playwright_mcp_tool(args):
     except Exception as e:
         return f"Playwright MCP error: {e}"
 
-
 def change_working_directory_tool(args: Dict[str, Any]) -> str:
     """Change the current working directory of the agent to a different project or folder."""
     path = args.get('path', '')
