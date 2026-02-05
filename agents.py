@@ -1020,6 +1020,66 @@ def recognize_video_tool(args: Dict[str, Any]) -> str:
         return f"Error during video recognition: {str(e)}"
 
 
+def recognize_audio_tool(args: Dict[str, Any]) -> str:
+    """Use GPT-4o to analyze and summarize an audio file, including speech, music, and sounds."""
+    path = args.get('path', '')
+    prompt = args.get('prompt', 'Analyze this audio file. Describe everything you hear: transcribe any speech, identify any music (genre, instruments, mood), and note any ambient or other sounds.')
+
+    SUPPORTED_FORMATS = ('.wav', '.mp3', '.ogg', '.flac', '.webm', '.m4a', '.mp4', '.aac', '.wma', '.opus')
+
+    if not path or not os.path.exists(path):
+        return f"Error: File '{path}' not found."
+
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in SUPPORTED_FORMATS:
+        return f"Error: Unsupported audio format '{ext}'. Supported formats: {', '.join(SUPPORTED_FORMATS)}"
+
+    converted_path = None
+    try:
+        # GPT-4o audio input only accepts wav and mp3; convert other formats
+        if ext in ('.wav', '.mp3'):
+            audio_path = path
+            audio_format = ext[1:]  # strip the leading dot
+        else:
+            from pydub import AudioSegment
+            audio_segment = AudioSegment.from_file(path)
+            converted_path = os.path.splitext(path)[0] + '_temp_converted.wav'
+            audio_segment.export(converted_path, format='wav')
+            audio_path = converted_path
+            audio_format = 'wav'
+
+        with open(audio_path, "rb") as f:
+            base64_audio = base64.b64encode(f.read()).decode('utf-8')
+
+        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        response = client.chat.completions.create(
+            model="gpt-4o-audio-preview",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "input_audio",
+                            "input_audio": {
+                                "data": base64_audio,
+                                "format": audio_format
+                            }
+                        }
+                    ],
+                }
+            ],
+            max_tokens=1000,
+        )
+
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Error during audio recognition: {str(e)}"
+    finally:
+        if converted_path and os.path.exists(converted_path):
+            os.remove(converted_path)
+
+
 SEARCH_FILE_DEFINITION = ToolDefinition(
     name="search_file",
     description="Search for a file by name across common directories (Desktop, Documents, Downloads, Pictures, etc.) and return its absolute path.",
@@ -1377,6 +1437,27 @@ RECOGNIZE_VIDEO_DEFINITION = ToolDefinition(
         "required": ["path"]
     },
     function=recognize_video_tool
+)
+
+
+RECOGNIZE_AUDIO_DEFINITION = ToolDefinition(
+    name="recognize_audio",
+    description="Analyze an audio file (wav, mp3, ogg, flac, webm, m4a, mp4, aac, wma, opus) using GPT-4o. Identifies and summarizes speech, music, and ambient sounds in the file.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "The path to the audio file."
+            },
+            "prompt": {
+                "type": "string",
+                "description": "What you want to know about the audio. Default analyzes speech, music, and sounds."
+            }
+        },
+        "required": ["path"]
+    },
+    function=recognize_audio_tool
 )
 
 
@@ -1768,6 +1849,7 @@ def main():
         OPEN_GMAIL_AND_COMPOSE_DEFINITION,
         RECOGNIZE_IMAGE_DEFINITION,
         RECOGNIZE_VIDEO_DEFINITION,
+        RECOGNIZE_AUDIO_DEFINITION,
         FIND_FILE_BROADLY_DEFINITION,
         FIND_DIRECTORY_BROADLY_DEFINITION,
         CHANGE_WORKING_DIRECTORY_DEFINITION,
@@ -2041,6 +2123,7 @@ class Agent:
             'open_gmail_and_compose':   lambda a: f"Compose email to: {a.get('recipient', '')}",
             'recognize_image':          lambda a: f"Analyze image: {a.get('path', '')}",
             'recognize_video':          lambda a: f"Analyze video: {a.get('path', '')}",
+            'recognize_audio':          lambda a: f"Analyze audio: {a.get('path', '')}",
             'github_create_branch':     lambda a: f"Create GitHub branch: {a.get('name', '')}",
             'github_commit_file':       lambda a: f"Commit to GitHub branch '{a.get('branch', '')}': {a.get('path', '')}",
             'github_commit_local_file': lambda a: f"Commit local file to GitHub branch '{a.get('branch', '')}': {a.get('local_path', '')}",

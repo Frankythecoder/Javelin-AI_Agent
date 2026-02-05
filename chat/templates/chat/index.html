@@ -220,6 +220,42 @@
             box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
         }
 
+        /* Mic Button */
+        .btn-mic {
+            background: #f1f5f9;
+            border: 1.5px solid var(--border);
+            border-radius: 0.875rem;
+            padding: 0.75rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            transition: all 0.2s;
+        }
+
+        .btn-mic:hover {
+            background: #e2e8f0;
+            color: var(--text-main);
+        }
+
+        .btn-mic.listening {
+            background: #ef4444;
+            border-color: #ef4444;
+            color: white;
+            animation: mic-pulse 1.5s infinite;
+        }
+
+        @keyframes mic-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+            50%      { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+        }
+
+        .btn-mic.unsupported {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
         /* Tool Approval UI */
         .tool-card {
             background: #f1f5f9;
@@ -443,7 +479,7 @@
     <div class="chat-container">
         <header class="chat-header">
             <h1><span class="status-dot"></span> Javelin</h1>
-            <div style="font-size: 0.8rem; color: var(--text-muted)">Powered by GPT-4o</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted)">Powered by OpenAI</div>
             <div class="agent-controls">
                 <button title="New Chat" onclick="newChat()">+</button>
                 <button title="Chat History" onclick="toggleHistoryPanel()">🕐</button>
@@ -473,6 +509,9 @@
         <div class="chat-input-container">
             <form id="chat-form">
                 <textarea id="message" autocomplete="off" placeholder="Message Javelin..." required rows="1"></textarea>
+                <button type="button" id="mic-btn" class="btn-mic" onclick="toggleMic()" title="Start voice input">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="1" width="6" height="12" rx="3"></rect><path d="M19 10v1a7 7 0 0 1-14 0v-1"></path><line x1="12" y1="18" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+                </button>
                 <button type="submit">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                     Send
@@ -486,7 +525,8 @@
         const chatForm = document.getElementById('chat-form');
         const messageInput = document.getElementById('message');
         const typingIndicator = document.getElementById('typing-indicator');
-        
+        const micBtn = document.getElementById('mic-btn');
+
         let conversationHistory = [];
         let currentSessionId = null;
         let saveTimer = null;
@@ -722,6 +762,73 @@
                 appendMessage('agent', '⚠️ Failed to control agent.');
                 console.error(err);
             }
+        }
+
+        // ─── Speech-to-Text (Web Speech API) ────────────────────────
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition = null;
+        let isListening = false;
+        let sttExistingText = '';   // text already in the textarea when mic started
+        let sttFinalText    = '';   // accumulated final transcripts this session
+
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.continuous    = false;
+            recognition.interimResults = true;
+            recognition.lang          = 'en-US';
+
+            recognition.onresult = (event) => {
+                let interimText = '';
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    if (event.results[i].isFinal) {
+                        sttFinalText += event.results[i][0].transcript;
+                    } else {
+                        interimText  += event.results[i][0].transcript;
+                    }
+                }
+                const sep = sttExistingText && (sttFinalText || interimText) ? ' ' : '';
+                messageInput.value = sttExistingText + sep + sttFinalText + interimText;
+                messageInput.dispatchEvent(new Event('input')); // trigger auto-resize
+            };
+
+            recognition.onend = () => {
+                isListening = false;
+                micBtn.classList.remove('listening');
+                const sep = sttExistingText && sttFinalText ? ' ' : '';
+                messageInput.value = sttExistingText + sep + sttFinalText;
+                messageInput.dispatchEvent(new Event('input'));
+                messageInput.focus();
+            };
+
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+                isListening = false;
+                micBtn.classList.remove('listening');
+                if (event.error === 'not-allowed') {
+                    appendMessage('agent', '⚠️ Microphone access was denied. Please allow it in your browser settings.');
+                }
+            };
+        } else {
+            // Browser does not support the Web Speech API
+            micBtn.classList.add('unsupported');
+            micBtn.title = 'Voice input is not supported in this browser';
+        }
+
+        function toggleMic() {
+            if (!recognition) return;
+
+            if (isListening) {
+                recognition.stop(); // triggers onend after finalising
+                return;
+            }
+
+            // Snapshot whatever the user already typed so we can append to it
+            sttExistingText = messageInput.value;
+            sttFinalText    = '';
+            isListening     = true;
+            micBtn.classList.add('listening');
+            recognition.start();
         }
 
         // ─── Chat Session Management ────────────────────────────────
