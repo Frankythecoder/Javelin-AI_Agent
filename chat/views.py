@@ -8,6 +8,7 @@ from openai import OpenAI
 from decouple import config
 from django.conf import settings
 from utils import load_module_from_s3
+from .models import ChatSession
 
 # Configure OpenAI client
 client = OpenAI(api_key=settings.OPENAI_API_KEY)
@@ -191,3 +192,77 @@ def agent_control_api(request):
         return JsonResponse({"error": "Invalid JSON"}, status=400)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+def chat_sessions_api(request):
+    """List all saved chat sessions (GET) or save/update one (POST)."""
+    try:
+        if request.method == 'GET':
+            sessions = ChatSession.objects.order_by('-updated_at').values(
+                'id', 'title', 'created_at', 'updated_at'
+            )
+            session_list = []
+            for s in sessions:
+                session_list.append({
+                    'id': s['id'],
+                    'title': s['title'] or f"Chat {s['id']}",
+                    'updated_at': s['updated_at'].strftime('%b %d, %Y %I:%M %p'),
+                })
+            return JsonResponse({'sessions': session_list})
+
+        elif request.method == 'POST':
+            data = json.loads(request.body)
+            history = data.get('history', [])
+            title = data.get('title', '')
+            session_id = data.get('session_id')
+
+            if not history:
+                return JsonResponse({'error': 'Nothing to save'}, status=400)
+
+            history_json = json.dumps(history)
+
+            if session_id:
+                try:
+                    session = ChatSession.objects.get(id=session_id)
+                    session.history = history_json
+                    if title:
+                        session.title = title
+                    session.save()
+                    return JsonResponse({'session_id': session.id, 'title': session.title})
+                except ChatSession.DoesNotExist:
+                    pass  # Session was deleted; fall through to create a new one
+
+            session = ChatSession.objects.create(title=title, history=history_json)
+            return JsonResponse({'session_id': session.id, 'title': session.title})
+
+        return JsonResponse({'error': 'Invalid request'}, status=405)
+
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+def chat_session_detail_api(request, session_id):
+    """Load a chat session (GET) or delete it (DELETE)."""
+    try:
+        if request.method == 'GET':
+            session = ChatSession.objects.get(id=session_id)
+            return JsonResponse({
+                'session_id': session.id,
+                'title': session.title,
+                'history': json.loads(session.history),
+            })
+
+        elif request.method == 'DELETE':
+            ChatSession.objects.filter(id=session_id).delete()
+            return JsonResponse({'deleted': True})
+
+        return JsonResponse({'error': 'Invalid request'}, status=405)
+
+    except ChatSession.DoesNotExist:
+        return JsonResponse({'error': 'Chat not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)

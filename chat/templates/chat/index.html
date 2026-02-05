@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Chat with OpenAI Agent</title>
+    <title>Chat with Javelin Agent</title>
     <!-- Add Marked.js for markdown support -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
@@ -64,6 +64,7 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
+            position: relative;
         }
 
         .chat-header h1 {
@@ -340,17 +341,123 @@
             .message { max-width: 95%; }
             .chat-header { padding: 1rem; }
         }
+
+        /* Chat History Panel */
+        .history-panel {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border-bottom: 1px solid var(--border);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 100;
+            max-height: 45vh;
+            overflow-y: auto;
+            border-radius: 0 0 16px 16px;
+        }
+
+        .history-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+            background: #f8fafc;
+            font-weight: 600;
+            font-size: 0.875rem;
+            color: var(--text-main);
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        .history-panel-header button {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 1.25rem;
+            color: var(--text-muted);
+            line-height: 1;
+            padding: 0.1rem 0.35rem;
+            border-radius: 4px;
+        }
+
+        .history-panel-header button:hover {
+            color: var(--text-main);
+            background: #e2e8f0;
+        }
+
+        .history-item {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+            transition: background 0.15s;
+        }
+
+        .history-item:last-child { border-bottom: none; }
+        .history-item:hover { background: #f1f5f9; }
+        .history-item.active { background: rgba(99, 102, 241, 0.08); }
+
+        .history-item-content {
+            flex: 1;
+            cursor: pointer;
+            min-width: 0;
+        }
+
+        .history-item-title {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-main);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .history-item-date {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.15rem;
+        }
+
+        .btn-delete-chat {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--text-muted);
+            font-size: 1rem;
+            padding: 0.25rem 0.4rem;
+            border-radius: 4px;
+            flex-shrink: 0;
+            transition: all 0.15s;
+        }
+
+        .btn-delete-chat:hover {
+            background: #fee2e2;
+            color: #ef4444;
+        }
     </style>
 </head>
 <body>
     <div class="chat-container">
         <header class="chat-header">
-            <h1><span class="status-dot"></span> AI Agent</h1>
+            <h1><span class="status-dot"></span> Javelin</h1>
             <div style="font-size: 0.8rem; color: var(--text-muted)">Powered by GPT-4o</div>
             <div class="agent-controls">
+                <button title="New Chat" onclick="newChat()">+</button>
+                <button title="Chat History" onclick="toggleHistoryPanel()">🕐</button>
                 <button title="Stop Execution" onclick="controlAgent('stop')">⏹️</button>
                 <button title="Disable Tools" onclick="controlAgent('disable_tools')">🔒</button>
                 <button title="Enable Tools" onclick="controlAgent('enable_tools')">🔓</button>
+            </div>
+            <!-- Chat History Panel (dropdown) -->
+            <div id="history-panel" class="history-panel" style="display: none;">
+                <div class="history-panel-header">
+                    <span>Previous Chats</span>
+                    <button onclick="toggleHistoryPanel()">✕</button>
+                </div>
+                <div id="history-list"></div>
             </div>
         </header>
         
@@ -359,13 +466,13 @@
         </div>
 
         <div class="typing-indicator" id="typing-indicator" style="margin: 0 2rem 1rem;">
-            <span>Agent is thinking</span>
+            <span>Javelin is thinking</span>
             <div class="dots"><span></span><span></span><span></span></div>
         </div>
         
         <div class="chat-input-container">
             <form id="chat-form">
-                <textarea id="message" autocomplete="off" placeholder="Message AI Assistant..." required rows="1"></textarea>
+                <textarea id="message" autocomplete="off" placeholder="Message Javelin..." required rows="1"></textarea>
                 <button type="submit">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                     Send
@@ -381,6 +488,8 @@
         const typingIndicator = document.getElementById('typing-indicator');
         
         let conversationHistory = [];
+        let currentSessionId = null;
+        let saveTimer = null;
 
         // Configure marked.js
         marked.setOptions({
@@ -564,6 +673,9 @@
             } else if (data.error || data.message) {
                 appendMessage('agent', `⚠️ ${data.error || data.message}`);
             }
+
+            // Auto-save chat session (debounced, fire-and-forget)
+            scheduleAutoSave();
         }
 
         chatForm.addEventListener('submit', async (e) => {
@@ -612,8 +724,171 @@
             }
         }
 
+        // ─── Chat Session Management ────────────────────────────────
+
+        function generateTitle() {
+            const firstUserMsg = conversationHistory.find(msg => msg.role === 'user');
+            if (firstUserMsg && firstUserMsg.content) {
+                return firstUserMsg.content.substring(0, 60);
+            }
+            return 'New Chat';
+        }
+
+        function scheduleAutoSave() {
+            if (saveTimer) clearTimeout(saveTimer);
+            saveTimer = setTimeout(() => saveCurrentChat(), 800);
+        }
+
+        async function saveCurrentChat() {
+            if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+            if (conversationHistory.length === 0) return;
+            try {
+                const body = { history: conversationHistory, title: generateTitle() };
+                if (currentSessionId) body.session_id = currentSessionId;
+                const res = await fetch('/api/chats/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (data.session_id) {
+                    currentSessionId = data.session_id;
+                    localStorage.setItem('lastSessionId', String(currentSessionId));
+                }
+            } catch (err) {
+                console.error('Auto-save failed', err);
+            }
+        }
+
+        function toggleHistoryPanel() {
+            const panel = document.getElementById('history-panel');
+            if (panel.style.display === 'none') {
+                loadHistorySessions();
+                panel.style.display = 'block';
+            } else {
+                panel.style.display = 'none';
+            }
+        }
+
+        async function loadHistorySessions() {
+            try {
+                const res = await fetch('/api/chats/');
+                const data = await res.json();
+                const list = document.getElementById('history-list');
+                list.innerHTML = '';
+
+                if (!data.sessions || data.sessions.length === 0) {
+                    list.innerHTML = '<div style="padding:1rem;color:var(--text-muted);text-align:center;font-size:0.875rem;">No saved chats yet</div>';
+                    return;
+                }
+
+                data.sessions.forEach(session => {
+                    const item = document.createElement('div');
+                    item.className = 'history-item' + (session.id === currentSessionId ? ' active' : '');
+                    item.innerHTML = `
+                        <div class="history-item-content" onclick="loadChat(${session.id})">
+                            <div class="history-item-title">${escapeHtml(session.title)}</div>
+                            <div class="history-item-date">${escapeHtml(session.updated_at)}</div>
+                        </div>
+                        <button class="btn-delete-chat" onclick="deleteChat(${session.id}, event)" title="Delete">✕</button>
+                    `;
+                    list.appendChild(item);
+                });
+            } catch (err) {
+                console.error('Failed to load history', err);
+            }
+        }
+
+        async function newChat() {
+            if (conversationHistory.length > 0) {
+                await saveCurrentChat();
+            }
+            conversationHistory = [];
+            currentSessionId = null;
+            localStorage.removeItem('lastSessionId');
+            chatbox.innerHTML = '';
+            document.getElementById('history-panel').style.display = 'none';
+            messageInput.focus();
+        }
+
+        async function loadChat(sessionId) {
+            try {
+                // Persist whatever is currently open before switching
+                if (conversationHistory.length > 0 && currentSessionId !== sessionId) {
+                    await saveCurrentChat();
+                }
+
+                const res = await fetch(`/api/chats/${sessionId}/`);
+                if (!res.ok) {
+                    appendMessage('agent', '⚠️ Chat not found.');
+                    return;
+                }
+                const data = await res.json();
+
+                conversationHistory = data.history;
+                currentSessionId = data.session_id;
+                localStorage.setItem('lastSessionId', String(currentSessionId));
+
+                // Re-render visible messages (user + assistant only; tool messages
+                // stay in the history array as context for the next API call)
+                chatbox.innerHTML = '';
+                conversationHistory.forEach(msg => {
+                    if (msg.role === 'user' && msg.content) {
+                        appendMessage('user', msg.content);
+                    } else if (msg.role === 'assistant' && msg.content) {
+                        appendMessage('agent', msg.content);
+                    }
+                });
+
+                document.getElementById('history-panel').style.display = 'none';
+                messageInput.focus();
+            } catch (err) {
+                appendMessage('agent', '⚠️ Failed to load chat.');
+                console.error(err);
+            }
+        }
+
+        async function deleteChat(sessionId, event) {
+            event.stopPropagation();
+            try {
+                await fetch(`/api/chats/${sessionId}/`, { method: 'DELETE' });
+                if (currentSessionId === sessionId) {
+                    currentSessionId = null;
+                    localStorage.removeItem('lastSessionId');
+                }
+                await loadHistorySessions(); // refresh the list in place
+            } catch (err) {
+                console.error('Delete failed', err);
+            }
+        }
+
+        async function restoreLastSession() {
+            const lastId = localStorage.getItem('lastSessionId');
+            if (!lastId) return;
+            try {
+                const res = await fetch(`/api/chats/${lastId}/`);
+                if (!res.ok) { localStorage.removeItem('lastSessionId'); return; }
+                const data = await res.json();
+
+                conversationHistory = data.history;
+                currentSessionId = data.session_id;
+
+                conversationHistory.forEach(msg => {
+                    if (msg.role === 'user' && msg.content) {
+                        appendMessage('user', msg.content);
+                    } else if (msg.role === 'assistant' && msg.content) {
+                        appendMessage('agent', msg.content);
+                    }
+                });
+            } catch (err) {
+                localStorage.removeItem('lastSessionId');
+                console.error('Restore failed', err);
+            }
+        }
+
         // Initial welcome message (optional)
         // appendMessage('agent', 'Hello! How can I help you today?');
+        restoreLastSession();
         messageInput.focus();
 
         // Handle Shift + Enter for new lines, Enter for submit
