@@ -100,12 +100,14 @@ def chat_api(request):
                         "name": tool_call.get('name'),
                         "content": result
                     })
-                # Continue chat with the updated history
-                response_data = agent.chat_once(conversation_history=history)
+                # Continue chat with the updated history — stay in per-tool
+                # approval mode because the dry-run plan was already approved.
+                response_data = agent.chat_once(conversation_history=history, use_pending=True)
                 return JsonResponse(response_data)
-            
+
             elif status == 'denied':
-                # User denied the tool calls
+                # User denied one per-tool action but the overall plan is still
+                # approved, so stay in per-tool approval mode.
                 pending_tools = data.get('pending_tools', [])
                 for tool_call in pending_tools:
                     history.append({
@@ -117,8 +119,26 @@ def chat_api(request):
 
                 response_data = agent.chat_once(
                     conversation_history=history,
-                    message=user_message
+                    message=user_message,
+                    use_pending=True
                 )
+                return JsonResponse(response_data)
+
+            elif status == 'dry_run_approved':
+                dry_run_plan = data.get('dry_run_plan', [])
+                response_data = agent.execute_dry_run(dry_run_plan, history)
+                return JsonResponse(response_data)
+
+            elif status == 'dry_run_denied':
+                dry_run_plan = data.get('dry_run_plan', [])
+                for tool_call in dry_run_plan:
+                    history.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.get('id'),
+                        "name": tool_call.get('name'),
+                        "content": "The user denied this action during the dry run review."
+                    })
+                response_data = agent.chat_once(conversation_history=history)
                 return JsonResponse(response_data)
 
             if not user_message and not status:

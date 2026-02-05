@@ -1832,13 +1832,17 @@ class Agent:
         14. For ALL GitHub operations (creating branches, committing files, raising pull requests), use ONLY the github_create_branch, github_commit_file, github_commit_local_file, and github_create_pr MCP tools. NEVER use run_code with git commands for GitHub operations. The workflow is: Step 1: github_create_branch -> Step 2: github_commit_file or github_commit_local_file -> Step 3: github_create_pr.
         """
 
-    def chat_once(self, conversation_history=None, message=None):
+    def chat_once(self, conversation_history=None, message=None, use_pending=False):
         """
         Handle a single chat interaction for Django/API usage.
 
         Args:
             conversation_history: List of previous messages (optional)
             message: Single message string to process
+            use_pending: If True the model's tool calls go through per-tool
+                         approval (status="pending").  If False (the default,
+                         used for every fresh user message) all tool calls are
+                         collected into a single dry-run plan first.
 
         Returns:
             Dict containing status and response/tool info
@@ -1895,14 +1899,23 @@ class Agent:
             )
             
             # Process the response and return the final text
-            return self._process_response_for_api(response, messages)
-            
+            return self._process_response_for_api(response, messages, use_pending=use_pending)
+
         except Exception as e:
             return {"status": "error", "message": str(e)}
-    
-    def _process_response_for_api(self, response, messages):
+
+    def _process_response_for_api(self, response, messages, use_pending=False):
         """
         Process response for API usage - returns structured response.
+
+        use_pending=False  →  dry-run mode: every tool call is collected into
+                              a plan and returned as status="dry_run" without
+                              executing anything.
+        use_pending=True   →  per-tool mode: tools whose definition has
+                              requires_approval=True are held as
+                              status="pending"; all others execute immediately.
+                              This is the mode used after the initial dry-run
+                              plan has been approved.
         """
         try:
             if self.control.stopped:
@@ -1929,50 +1942,182 @@ class Agent:
             messages.append(message_dict)
             
             if message.tool_calls:
-                pending_tools = []
-                for tool_call in message.tool_calls:
-                    function_name = tool_call.function.name
-                    function_args = json.loads(tool_call.function.arguments)
-                    
-                    # Check if tool requires approval
-                    tool_def = next((t for t in self.tools if t.name == function_name), None)
-                    if tool_def and tool_def.requires_approval:
-                        pending_tools.append({
+                if use_pending:
+                    # --- per-tool approval mode (plan already approved) ---
+                    pending_tools = []
+                    for tool_call in message.tool_calls:
+                        function_name = tool_call.function.name
+                        function_args = json.loads(tool_call.function.arguments)
+
+                        tool_def = next((t for t in self.tools if t.name == function_name), None)
+                        if tool_def and tool_def.requires_approval:
+                            pending_tools.append({
+                                "id": tool_call.id,
+                                "name": function_name,
+                                "arguments": function_args
+                            })
+                        else:
+                            # Read-only / low-risk tool — execute immediately
+                            result = self._execute_tool_by_name(function_name, function_args)
+                            messages.append({
+                                "tool_call_id": tool_call.id,
+                                "role": "tool",
+                                "name": function_name,
+                                "content": result,
+                            })
+
+                    if pending_tools:
+                        return {
+                            "status": "pending",
+                            "pending_tools": pending_tools,
+                            "response": message.content or "Approve the next action:",
+                            "history": messages
+                        }
+
+                    # All tools were low-risk and already executed; ask the model
+                    # for a follow-up, staying in per-tool mode.
+                    follow_up = self.client.chat.completions.create(
+                        model=self.model_name,
+                        messages=self._trim_messages(messages),
+                        tools=self.openai_tools,
+                        tool_choice="auto"
+                    )
+                    return self._process_response_for_api(follow_up, messages, use_pending=True)
+
+                else:
+                    # --- dry-run mode (fresh task, nothing approved yet) ---
+                    dry_run_plan = []
+                    for tool_call in message.tool_calls:
+                        function_name = tool_call.function.name
+                        function_args = json.loads(tool_call.function.arguments)
+
+                        dry_run_plan.append({
                             "id": tool_call.id,
                             "name": function_name,
-                            "arguments": function_args
+                            "arguments": function_args,
+                            "summary": self._summarize_tool_call(function_name, function_args)
                         })
-                    else:
-                        # Execute the tool immediately if it doesn't require approval
-                        result = self._execute_tool_by_name(function_name, function_args)
-                        messages.append({
-                            "tool_call_id": tool_call.id,
-                            "role": "tool",
-                            "name": function_name,
-                            "content": result,
-                        })
-                
-                if pending_tools:
+
+                    # Pull the most recent user message so the summary
+                    # prompt is grounded in what was actually asked.
+                    user_request = ""
+                    for msg in reversed(messages):
+                        if msg.get("role") == "user":
+                            user_request = msg.get("content", "")
+                            break
+
                     return {
-                        "status": "pending",
-                        "pending_tools": pending_tools,
-                        "response": message.content or "I need your approval to perform the following actions:",
+                        "status": "dry_run",
+                        "dry_run_plan": dry_run_plan,
+                        "response": self._generate_plan_summary(dry_run_plan, user_request),
                         "history": messages
                     }
-                
-                # If all tools were executed (none were pending), get follow-up
-                follow_up = self.client.chat.completions.create(
-                    model=self.model_name,
-                    messages=self._trim_messages(messages),
-                    tools=self.openai_tools,
-                    tool_choice="auto"
-                )
-                return self._process_response_for_api(follow_up, messages)
                 
             return {"status": "success", "response": message.content or "No response generated", "history": messages}
             
         except Exception as e:
             return {"status": "error", "message": f"Error processing response: {str(e)}"}
+
+    def _summarize_tool_call(self, name: str, args: Dict[str, Any]) -> str:
+        """Return a one-line, human-readable description of a tool call for the dry-run plan."""
+        summaries = {
+            'read_file':                lambda a: f"Read file: {a.get('path', '')}",
+            'list_files':               lambda a: f"List files in: {a.get('path', '.')}",
+            'search_file':              lambda a: f"Search for file: {a.get('filename', '')}",
+            'find_file_broadly':        lambda a: f"Find file: {a.get('filename', '')}",
+            'find_directory_broadly':   lambda a: f"Find directory: {a.get('dirname', '')}",
+            'create_and_edit_file':     lambda a: f"Edit/create file: {a.get('path', '')}",
+            'delete_file':              lambda a: f"Delete: {a.get('path', '')}",
+            'rename_file':              lambda a: f"Rename {a.get('old_path', '')} \u2192 {a.get('new_path', '')}",
+            'run_code':                 lambda a: f"Run command: {a.get('command', '')}",
+            'check_syntax':             lambda a: f"Check syntax of: {a.get('path', '')}",
+            'run_tests':                lambda a: f"Run tests: {a.get('command', 'auto-detect')}",
+            'lint_code':                lambda a: f"Lint: {a.get('path', '')}",
+            'change_working_directory': lambda a: f"Change directory to: {a.get('path', '')}",
+            'create_pdf':               lambda a: f"Create PDF: {a.get('filename', '')}",
+            'create_docx':              lambda a: f"Create DOCX: {a.get('filename', '')}",
+            'create_excel':             lambda a: f"Create Excel: {a.get('filename', '')}",
+            'create_pptx':              lambda a: f"Create PPTX: {a.get('filename', '')}",
+            'open_gmail_and_compose':   lambda a: f"Compose email to: {a.get('recipient', '')}",
+            'recognize_image':          lambda a: f"Analyze image: {a.get('path', '')}",
+            'recognize_video':          lambda a: f"Analyze video: {a.get('path', '')}",
+            'github_create_branch':     lambda a: f"Create GitHub branch: {a.get('name', '')}",
+            'github_commit_file':       lambda a: f"Commit to GitHub branch '{a.get('branch', '')}': {a.get('path', '')}",
+            'github_commit_local_file': lambda a: f"Commit local file to GitHub branch '{a.get('branch', '')}': {a.get('local_path', '')}",
+            'github_create_pr':         lambda a: f'Create GitHub PR: "{a.get("title", "")}"',
+            'playwright_navigate':      lambda a: f"Navigate to: {a.get('url', '')}",
+        }
+        summarizer = summaries.get(name)
+        return summarizer(args) if summarizer else f"Call '{name}' with: {json.dumps(args)}"
+
+    def _generate_plan_summary(self, dry_run_plan: List[Dict[str, Any]], user_request: str = "") -> str:
+        """Ask the model to produce a plain-English, start-to-finish summary
+        of the dry-run plan.  The user's original request is included so the
+        summary stays grounded.  Falls back to a generic string on any failure
+        so the card still renders."""
+        steps = "\n".join(
+            f"{i + 1}. {step['summary']}  —  {step['name']}({json.dumps(step['arguments'])})"
+            for i, step in enumerate(dry_run_plan)
+        )
+        user_ctx = f"The user asked: \"{user_request}\"\n\n" if user_request else ""
+
+        try:
+            resp = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are about to execute an action plan on behalf of the user. "
+                            "Summarise the plan below in 2-4 clear sentences of plain English. "
+                            "Describe what will happen from start to finish and what the end "
+                            "result will be. Do not repeat raw tool names or JSON — translate "
+                            "everything into natural language."
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": f"{user_ctx}Planned actions:\n\n{steps}\n\nSummarise what this plan will do:"
+                    }
+                ]
+            )
+            summary = resp.choices[0].message.content
+            if summary and summary.strip():
+                return summary.strip()
+        except Exception as e:
+            print(f"[dry_run] summary generation failed: {e}")
+
+        return "Here is the planned action(s). Review and approve or deny before execution:"
+
+    def execute_dry_run(self, dry_run_plan: List[Dict[str, Any]], history: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Execute every tool in an approved dry-run plan, then fetch the model follow-up.
+
+        The follow-up is processed with use_pending=True so any further tool
+        calls the model issues go through per-tool approval rather than
+        surfacing as another dry-run round.
+        """
+        try:
+            for tool_call in dry_run_plan:
+                if self.control.stopped:
+                    return {"status": "stopped", "response": "\u26d4 Agent execution was stopped."}
+
+                result = self._execute_tool_by_name(tool_call['name'], tool_call['arguments'])
+                history.append({
+                    "tool_call_id": tool_call['id'],
+                    "role": "tool",
+                    "name": tool_call['name'],
+                    "content": result,
+                })
+
+            follow_up = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=self._trim_messages(history),
+                tools=self.openai_tools,
+                tool_choice="auto"
+            )
+            return self._process_response_for_api(follow_up, history, use_pending=True)
+        except Exception as e:
+            return {"status": "error", "message": f"Error executing dry run: {str(e)}"}
 
     def run(self):
         print("Chat with OpenAI (use 'ctrl-c' or type 'quit' to exit)")

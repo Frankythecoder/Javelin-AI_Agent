@@ -240,6 +240,19 @@
             gap: 0.5rem;
         }
 
+        .dry-run-summary {
+            font-size: 0.9rem;
+            color: var(--text-main);
+            line-height: 1.55;
+            margin-bottom: 0.75rem;
+            padding: 0.625rem 0.75rem;
+            background: rgba(99, 102, 241, 0.06);
+            border-radius: 8px;
+            border-left: 3px solid var(--primary);
+        }
+
+        .dry-run-summary p { margin: 0; }
+
         .tool-list {
             list-style: none;
             margin: 0 !important;
@@ -421,6 +434,87 @@
             chatbox.scrollTop = chatbox.scrollHeight;
         }
 
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.appendChild(document.createTextNode(String(str)));
+            return div.innerHTML;
+        }
+
+        function appendDryRunPlan(text, dryRunPlan) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message agent';
+
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+
+            const toolCard = document.createElement('div');
+            toolCard.className = 'tool-card';
+
+            // Store plan on window keyed by unique id so onclick never serialises
+            // user-controlled strings into an HTML attribute
+            const planId = 'dryRunPlan_' + Date.now();
+            window[planId] = dryRunPlan;
+
+            toolCard.innerHTML = `
+                <div class="tool-header">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+                    Plan (${dryRunPlan.length} step${dryRunPlan.length !== 1 ? 's' : ''})
+                </div>
+                <div class="dry-run-summary">${marked.parse(text)}</div>
+                <div class="tool-list">
+                    ${dryRunPlan.map((step, i) => `
+                        <div class="tool-item">
+                            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem;">
+                                <span style="background:#6366f1;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:700;flex-shrink:0;">${i + 1}</span>
+                                <strong style="font-family:sans-serif;font-size:0.85rem;">${escapeHtml(step.summary)}</strong>
+                            </div>
+                            <div style="color:#64748b;font-size:0.75rem;padding-left:1.75rem;">${escapeHtml(step.name)}(${escapeHtml(JSON.stringify(step.arguments))})</div>
+                        </div>
+                    `).join('')}
+                </div>
+                <div class="approval-actions">
+                    <button class="btn-approve" data-plan-id="${planId}" onclick="handleDryRunApproval('dry_run_approved', this)">✓ Approve &amp; Execute</button>
+                    <button class="btn-deny"    data-plan-id="${planId}" onclick="handleDryRunApproval('dry_run_denied',    this)">✕ Deny</button>
+                </div>
+            `;
+
+            bubble.appendChild(toolCard);
+            messageDiv.appendChild(bubble);
+            chatbox.appendChild(messageDiv);
+            chatbox.scrollTop = chatbox.scrollHeight;
+        }
+
+        async function handleDryRunApproval(status, buttonEl) {
+            const planId   = buttonEl.dataset.planId;
+            const plan     = window[planId];
+            delete window[planId];                          // one-shot cleanup
+
+            const card = buttonEl.closest('.tool-card');
+            const label = status === 'dry_run_approved' ? 'approved' : 'denied';
+            card.innerHTML = `<div style="text-align:center;color:var(--text-muted);font-size:0.8rem;padding:0.5rem;">Plan ${label}...</div>`;
+
+            showTypingIndicator();
+
+            try {
+                const response = await fetch('/api/chat/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        status: status,
+                        dry_run_plan: plan,
+                        history: conversationHistory
+                    })
+                });
+
+                const data = await response.json();
+                handleResponse(data);
+            } catch (error) {
+                hideTypingIndicator();
+                appendMessage('agent', '❌ Error processing dry run decision.');
+                console.error('Dry run approval failed', error);
+            }
+        }
+
         async function handleToolApproval(status, pendingTools, buttonEl) {
             const card = buttonEl.closest('.tool-card');
             card.innerHTML = `<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 0.5rem;">Tool request ${status}...</div>`;
@@ -463,6 +557,8 @@
             
             if (data.status === 'pending') {
                 appendMessage('agent', data.response || 'I need to perform some actions:', true, data.pending_tools);
+            } else if (data.status === 'dry_run') {
+                appendDryRunPlan(data.response || 'Here is the planned action(s):', data.dry_run_plan);
             } else if (data.response) {
                 appendMessage('agent', data.response);
             } else if (data.error || data.message) {
