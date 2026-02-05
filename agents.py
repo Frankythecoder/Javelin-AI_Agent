@@ -40,28 +40,13 @@ from pptx import Presentation
 
 class AgentControlState:
     def __init__(self):
-        self.paused = False
-        self.cancelled = False
+        self.stopped = False
         self.tools_enabled = True
         self.lock = threading.Lock()
 
-    def pause(self):
+    def stop(self):
         with self.lock:
-            self.paused = True
-
-    def resume(self):
-        with self.lock:
-            self.paused = False
-
-    def cancel(self):
-        with self.lock:
-            self.cancelled = True
-
-    def reset(self):
-        with self.lock:
-            self.paused = False
-            self.cancelled = False
-            self.tools_enabled = True
+            self.stopped = True
 
     def disable_tools(self):
         with self.lock:
@@ -1850,23 +1835,25 @@ class Agent:
     def chat_once(self, conversation_history=None, message=None):
         """
         Handle a single chat interaction for Django/API usage.
-        
+
         Args:
             conversation_history: List of previous messages (optional)
             message: Single message string to process
-            
+
         Returns:
             Dict containing status and response/tool info
         """
         try:
-            if self.control.cancelled:
+            # Reset stopped flag for new messages to allow continuation
+            if message is not None:
+                self.control.stopped = False
+
+            if self.control.stopped:
                 return {
-                    "status": "cancelled",
-                    "response": "⛔ Agent execution was cancelled."
+                    "status": "stopped",
+                    "response": "⛔ Agent execution was stopped."
                 }
 
-            while self.control.paused:
-                time.sleep(0.1)
             messages = [
                 {"role": "system", "content": self.system_instruction}
             ]
@@ -1918,10 +1905,10 @@ class Agent:
         Process response for API usage - returns structured response.
         """
         try:
-            if self.control.cancelled:
+            if self.control.stopped:
                 return {
-                    "status": "cancelled",
-                    "response": "⛔ Execution cancelled mid-response."
+                    "status": "stopped",
+                    "response": "⛔ Execution stopped mid-response."
                 }
             message = response.choices[0].message
             
@@ -1995,13 +1982,10 @@ class Agent:
         ]
 
         while True:
-            if self.control.cancelled:
-                print("⛔ Agent execution cancelled.")
+            if self.control.stopped:
+                print("⛔ Agent execution stopped.")
                 break
 
-            # ⏸️ KILL SWITCH: pause execution
-            while self.control.paused:
-                time.sleep(0.1)
             print("\033[94mYou\033[0m: ", end="")
             user_input, ok = self.get_user_message()
             if not ok:
@@ -2077,14 +2061,12 @@ class Agent:
 
     def _execute_tool_by_name(self, name, args):
         """Find and execute a tool by name."""
-        if self.control.cancelled:
-            return "⛔ Agent execution cancelled."
+        if self.control.stopped:
+            return "⛔ Agent execution stopped."
 
         if not self.control.tools_enabled:
             return "🔒 Tool execution disabled by kill switch."
 
-        while self.control.paused:
-            time.sleep(0.1)
         from chat.models import ToolLog
         args_str = json.dumps(args).replace('\\\\n', '\\n').replace('\\n', '\n')
         print(f"\033[96mTool Call:\033[0m {name}({args_str})")

@@ -100,7 +100,6 @@ def chat_api(request):
                         "name": tool_call.get('name'),
                         "content": result
                     })
-                agent.control.reset()
                 # Continue chat with the updated history
                 response_data = agent.chat_once(conversation_history=history)
                 return JsonResponse(response_data)
@@ -115,8 +114,6 @@ def chat_api(request):
                         "name": tool_call.get('name'),
                         "content": "The user has denied this tool call/action."
                     })
-                if agent.control.cancelled:
-                    agent.control.reset()
 
                 response_data = agent.chat_once(
                     conversation_history=history,
@@ -126,8 +123,6 @@ def chat_api(request):
 
             if not user_message and not status:
                 return JsonResponse({'error': 'No message provided'}, status=400)
-            if agent.control.cancelled:
-                agent.control.reset()
 
 
             response_data = agent.chat_once(conversation_history=history, message=user_message)
@@ -149,28 +144,18 @@ def agent_control_api(request):
         if not action:
             return JsonResponse({"error": "No action provided"}, status=400)
 
-        if action == "pause":
-            agent.control.pause()
-        elif action == "resume":
-            agent.control.resume()
-        elif action == "cancel":
-            agent.control.cancel()
+        if action == "stop":
+            agent.control.stop()
         elif action == "disable_tools":
             agent.control.disable_tools()
         elif action == "enable_tools":
             agent.control.enable_tools()
-        elif action == "reset":
-            agent.control.reset()
         else:
             return JsonResponse({"error": "Unknown action"}, status=400)
 
         message = None
-        if action == "pause":
-            message = "⏸️ Execution paused."
-        elif action == "resume":
-            message = "▶️ Execution resumed."
-        elif action == "cancel":
-            message = "⛔ Execution cancelled."
+        if action == "stop":
+            message = "⛔ Execution stopped."
         elif action == "disable_tools":
             message = "🔒 Tool execution disabled."
         elif action == "enable_tools":
@@ -178,8 +163,7 @@ def agent_control_api(request):
 
         return JsonResponse({
             "message": message,
-            "paused": agent.control.paused,
-            "cancelled": agent.control.cancelled,
+            "stopped": agent.control.stopped,
             "tools_enabled": agent.control.tools_enabled
         })
 
