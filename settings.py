@@ -20,6 +20,8 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 GMAIL_SENDER_ADDRESS = os.getenv('GMAIL_ADDRESS')
 GMAIL_APP_PASSWORD = os.getenv('GMAIL_PASSWORD')
 CHROME_PROFILE_DIRECTORY = os.getenv('CHROME_PROFILE_DIRECTORY', 'Default')
+GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
+GITHUB_REPO = os.getenv('GITHUB_REPO')
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 # In flat layout, settings.py is in project root, so parent is the project root

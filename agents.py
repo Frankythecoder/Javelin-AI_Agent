@@ -665,6 +665,55 @@ def github_commit_local_file_tool(args):
     return _github_mcp_call("commit_local_file", args)
 
 
+def create_github_issue_tool(args: Dict[str, Any]) -> str:
+    """Create a GitHub issue on the configured repository."""
+    try:
+        title = args.get('title', '')
+        body = args.get('body', '')
+        labels = args.get('labels', [])
+        assignees = args.get('assignees', [])
+
+        if not title:
+            return "Error: Issue title is required."
+
+        # Get GitHub credentials from settings
+        github_token = getattr(settings, 'GITHUB_TOKEN', None)
+        github_repo = getattr(settings, 'GITHUB_REPO', None)
+
+        if not github_token or not github_repo:
+            return "Error: GITHUB_TOKEN or GITHUB_REPO not configured in settings."
+
+        # GitHub API endpoint
+        url = f"https://api.github.com/repos/{github_repo}/issues"
+        headers = {
+            "Authorization": f"token {github_token}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+
+        payload = {
+            "title": title,
+            "body": body
+        }
+
+        if labels:
+            payload["labels"] = labels if isinstance(labels, list) else [labels]
+        if assignees:
+            payload["assignees"] = assignees if isinstance(assignees, list) else [assignees]
+
+        response = requests.post(url, headers=headers, json=payload)
+
+        if response.status_code == 201:
+            issue_data = response.json()
+            issue_number = issue_data.get('number')
+            issue_url = issue_data.get('html_url')
+            return f"Successfully created issue #{issue_number}: {issue_url}"
+        else:
+            return f"Error creating issue: {response.status_code} - {response.text}"
+
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
 def lint_code_tool(args: Dict[str, Any]) -> str:
     """Run static analysis (linting) on a code file."""
     path = args.get('path', '')
@@ -1247,6 +1296,38 @@ GITHUB_MCP_DEFINITION = ToolDefinition(
         "required": ["title", "head"]
     },
     function=github_create_pr_tool,
+    requires_approval=True
+)
+
+
+CREATE_GITHUB_ISSUE_DEFINITION = ToolDefinition(
+    name="create_github_issue",
+    description="Create a GitHub issue on the configured repository. Use this to track bugs, feature requests, tasks, or automatically create tickets when code execution fails or tests fail. Issues can be labeled and assigned.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "title": {
+                "type": "string",
+                "description": "The title of the issue (required). Keep it concise and descriptive."
+            },
+            "body": {
+                "type": "string",
+                "description": "The body/description of the issue. Supports markdown formatting. Include error details, stack traces, reproduction steps, etc."
+            },
+            "labels": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional array of label names to apply (e.g., ['bug', 'high-priority', 'test-failure'])."
+            },
+            "assignees": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional array of GitHub usernames to assign the issue to."
+            }
+        },
+        "required": ["title"]
+    },
+    function=create_github_issue_tool,
     requires_approval=True
 )
 
@@ -1861,6 +1942,7 @@ def main():
         GITHUB_COMMIT_FILE_DEFINITION,
         GITHUB_COMMIT_LOCAL_FILE_DEFINITION,
         GITHUB_MCP_DEFINITION,
+        CREATE_GITHUB_ISSUE_DEFINITION,
         PLAYWRIGHT_MCP_DEFINITION
     ]
     model_name = 'gpt-4o'
