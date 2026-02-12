@@ -1524,40 +1524,116 @@ def _parse_flights_from_text(body, origin, destination, dep_date):
     return unique
 
 
+
+# Currency symbols and codes that Google Hotels may use depending on locale
+_CURRENCY_SYMBOLS = {
+    '$': 'USD', '\u20b9': 'INR', '\u20ac': 'EUR', '\u00a3': 'GBP',
+    '\u00a5': 'JPY', '\u20a9': 'KRW', 'R$': 'BRL', 'A$': 'AUD',
+    'C$': 'CAD', 'HK$': 'HKD', 'S$': 'SGD', '\u20b1': 'PHP',
+    '\u20ba': 'TRY', '\u20bd': 'RUB', 'kr': 'SEK', 'zł': 'PLN',
+    '\u20aa': 'ILS', '\u0e3f': 'THB', 'RM': 'MYR', 'Rp': 'IDR',
+}
+
+# Regex pattern that matches any common currency symbol followed by a number
+_PRICE_PATTERN = re.compile(
+    r'(?:R\$|A\$|C\$|HK\$|S\$|[$\u20b9\u20ac\u00a3\u00a5\u20a9\u20b1\u20ba\u20bd\u20aa\u0e3f]|kr|z[łl]|RM|Rp)\s?(\d[\d,]*)'
+)
+
+
+def _detect_currency(body):
+    """Detect the currency used on the page by finding the most common currency symbol."""
+    counts = {}
+    for sym in _CURRENCY_SYMBOLS:
+        c = body.count(sym)
+        if c > 0:
+            counts[sym] = c
+    if not counts:
+        return '$', 'USD'
+    best_sym = max(counts, key=counts.get)
+    return best_sym, _CURRENCY_SYMBOLS[best_sym]
+
+
 def _parse_hotels_from_text(body, city_code, check_in, check_out):
     """
     Parse raw body text from Google Hotels into structured hotel dicts.
-    Anchors on price lines ($XXX) and walks backwards to extract
-    hotel name, star rating, and review score.
+    Handles multiple currencies ($, ₹, €, £, ¥, etc.) and price formats
+    like "$189", "₹7,665", "€150/night", "From $189", etc.
     """
+    currency_sym, currency_code = _detect_currency(body)
+
     lines = [ln.strip() for ln in body.split("\n") if ln.strip()]
     hotels = []
     i = 0
 
     while i < len(lines):
-        price_m = re.match(r"^\$[\d,]+$", lines[i])
+        # Match prices with any currency symbol
+        price_m = _PRICE_PATTERN.search(lines[i])
         if not price_m:
             i += 1
             continue
 
-        price = lines[i].replace("$", "").replace(",", "")
+        # Skip lines that are clearly not hotel prices
+        line_lower = lines[i].lower()
+        if any(skip in line_lower for skip in ['tax', 'fee', 'off', 'save', 'was ', 'cancel']):
+            i += 1
+            continue
+
+        price = price_m.group(1).replace(",", "")
+
+        # Skip very small prices (likely fees, not hotel rates)
+        try:
+            if int(price) < 20:
+                i += 1
+                continue
+        except ValueError:
+            i += 1
+            continue
+
         window = lines[max(0, i - 10): i]
         window_text = "\n".join(window)
 
+        # Hotel name - find a line that looks like an actual hotel name,
+        # skipping amenity/feature lines that Google shows between name and price
+        _amenity_keywords = {
+            'wi-fi', 'wifi', 'breakfast', 'parking', 'pool', 'spa',
+            'gym', 'fitness', 'restaurant', 'bar', 'lounge',
+            'kid-friendly', 'kid friendly', 'pet-friendly', 'pet friendly',
+            'free cancellation', 'free wi-fi', 'free wifi', 'free parking',
+            'free breakfast', 'air conditioning', 'air-conditioning',
+            'kitchen', 'laundry', 'shuttle', 'concierge', 'room service',
+            'balcony', 'terrace', 'garden', 'beach', 'rooftop',
+            'accessible', 'wheelchair', 'no smoking', 'non-smoking',
+            'ev charger', 'ev charging', 'outdoor', 'indoor',
+            'hot tub', 'sauna', 'jacuzzi', 'minibar',
+            'check-in', 'check-out', 'checkout', 'checkin',
+        }
         name = "Hotel"
         for ln in window:
+            ln_lower = ln.lower().strip()
+            # Skip amenity/feature lines
+            if any(kw in ln_lower for kw in _amenity_keywords):
+                continue
             if (
                 len(ln) > 3
                 and len(ln) < 80
                 and not re.match(r"^[\d\.\$\(\),\s]+$", ln)
-                and "star" not in ln.lower()
-                and "rating" not in ln.lower()
-                and "review" not in ln.lower()
+                and not _PRICE_PATTERN.search(ln)
+                and "star" not in ln_lower
+                and "rating" not in ln_lower
+                and "review" not in ln_lower
+                and "night" not in ln_lower
+                and "price" not in ln_lower
+                and "deal" not in ln_lower
+                and "sponsored" not in ln_lower
+                and "amenit" not in ln_lower
+                and "facilit" not in ln_lower
                 and not re.match(r"^\d[\.\d]*$", ln)
+                and not re.match(r"^\([\d,]+\)$", ln)
             ):
                 name = ln
                 break
 
+        # Star rating
         star_m = re.search(r"(\d)[- ]star", window_text, re.I)
         rating = star_m[1] if star_m else ""
 
@@ -1565,7 +1641,7 @@ def _parse_hotels_from_text(body, city_code, check_in, check_out):
             'name': name,
             'rating': rating,
             'price': price,
-            'currency': 'USD',
+            'currency': currency_code,
         })
 
         i += 1
@@ -1768,10 +1844,46 @@ SEARCH_FLIGHTS_DEFINITION = ToolDefinition(
 )
 
 
+
+# Common IATA city codes to full city names for Google Hotels
+_CITY_CODE_TO_NAME = {
+    "NYC": "New York City", "LAX": "Los Angeles", "SFO": "San Francisco",
+    "CHI": "Chicago", "MIA": "Miami", "LAS": "Las Vegas",
+    "SEA": "Seattle", "BOS": "Boston", "DFW": "Dallas",
+    "ATL": "Atlanta", "DEN": "Denver", "PHX": "Phoenix",
+    "IAH": "Houston", "MSP": "Minneapolis", "DTW": "Detroit",
+    "PHL": "Philadelphia", "CLT": "Charlotte", "SAN": "San Diego",
+    "TPA": "Tampa", "MCO": "Orlando", "AUS": "Austin",
+    "PDX": "Portland", "SLC": "Salt Lake City", "BNA": "Nashville",
+    "LON": "London", "PAR": "Paris", "ROM": "Rome",
+    "BCN": "Barcelona", "MAD": "Madrid", "BER": "Berlin",
+    "AMS": "Amsterdam", "VIE": "Vienna", "PRG": "Prague",
+    "LIS": "Lisbon", "DUB": "Dublin", "ZRH": "Zurich",
+    "MIL": "Milan", "BRU": "Brussels", "CPH": "Copenhagen",
+    "OSL": "Oslo", "STO": "Stockholm", "HEL": "Helsinki",
+    "WAW": "Warsaw", "BUD": "Budapest", "ATH": "Athens",
+    "IST": "Istanbul", "TYO": "Tokyo", "OSA": "Osaka",
+    "SEL": "Seoul", "ICN": "Seoul", "PEK": "Beijing",
+    "BJS": "Beijing", "SHA": "Shanghai", "HKG": "Hong Kong",
+    "SIN": "Singapore", "BKK": "Bangkok", "KUL": "Kuala Lumpur",
+    "DEL": "New Delhi", "BOM": "Mumbai", "SYD": "Sydney",
+    "MEL": "Melbourne", "AKL": "Auckland", "DXB": "Dubai",
+    "DOH": "Doha", "CAI": "Cairo", "JNB": "Johannesburg",
+    "CPT": "Cape Town", "NBO": "Nairobi", "CAS": "Casablanca",
+    "MEX": "Mexico City", "CUN": "Cancun", "BOG": "Bogota",
+    "LIM": "Lima", "SCL": "Santiago", "GRU": "Sao Paulo",
+    "EZE": "Buenos Aires", "YTO": "Toronto", "YVR": "Vancouver",
+    "YMQ": "Montreal", "HAV": "Havana", "SJU": "San Juan",
+    "HNL": "Honolulu", "JFK": "New York City", "LHR": "London",
+    "CDG": "Paris", "NRT": "Tokyo", "FCO": "Rome",
+    "FRA": "Frankfurt", "MUC": "Munich", "ORD": "Chicago",
+}
+
+
 def search_hotels_tool(args: Dict[str, Any]) -> str:
     """Search for hotels by interacting with Google Hotels via Playwright."""
 
-    city_code = args.get('city_code', '').strip()
+    city_code = args.get('city_code', '').strip().upper()
     check_in = args.get('check_in', '').strip()
     check_out = args.get('check_out', '').strip()
     adults = int(args.get('adults', 1))
@@ -1780,16 +1892,21 @@ def search_hotels_tool(args: Dict[str, Any]) -> str:
     if not city_code or not check_in or not check_out:
         return "Error: city_code, check_in, and check_out are required."
 
+    # Resolve IATA code to full city name for Google Hotels
+    city_name = _CITY_CODE_TO_NAME.get(city_code, city_code)
+
     pw = browser = None
     try:
         pw, browser, ctx, page = _launch_travel_browser()
 
-        # Strategy A: URL-based approach
-        query = f"hotels in {city_code} {check_in} to {check_out}"
+        # Strategy A: URL-based approach with proper Google Hotels parameters
+        from urllib.parse import quote
         url = (
-            "https://www.google.com/travel/hotels?q="
-            + query.replace(" ", "+")
-            + "&curr=USD"
+            f"https://www.google.com/travel/hotels/{quote(city_name)}"
+            f"?q={quote(city_name + ' hotels')}"
+            f"&hl=en-US&gl=us"
+            f"&checkin={check_in}&checkout={check_out}"
+            f"&curr=USD"
         )
 
         page.goto(url, timeout=45000, wait_until="domcontentloaded")
@@ -1800,12 +1917,12 @@ def search_hotels_tool(args: Dict[str, Any]) -> str:
         body_text = page.inner_text("body")
 
         # Strategy B: If no price patterns found, try form interaction
-        if not re.search(r'\$\d+', body_text):
+        if not _PRICE_PATTERN.search(body_text):
             page.goto("https://www.google.com/travel/hotels", timeout=45000, wait_until="domcontentloaded")
             page.wait_for_timeout(5000)
             _dismiss_consent_banners(page)
 
-            # Type destination into the search field
+            # Type full city name into the search field
             try:
                 search_input = page.locator(
                     '[aria-label*="Search"], [aria-label*="destination"], '
@@ -1814,8 +1931,8 @@ def search_hotels_tool(args: Dict[str, Any]) -> str:
                 search_input.click()
                 page.wait_for_timeout(500)
                 page.keyboard.press("Control+a")
-                page.keyboard.type(city_code, delay=80)
-                page.wait_for_timeout(1000)
+                page.keyboard.type(city_name, delay=80)
+                page.wait_for_timeout(1500)
                 page.keyboard.press("Enter")
                 page.wait_for_timeout(1000)
             except Exception:
@@ -1857,9 +1974,12 @@ def search_hotels_tool(args: Dict[str, Any]) -> str:
         hotels = _parse_hotels_from_text(body_text, city_code, check_in, check_out)
 
         if not hotels:
+            # Include a snippet of the page text for debugging
+            snippet = body_text[:500].replace('\n', ' ').strip() if body_text else "(empty page)"
             return (
-                f"No hotels found in {city_code.upper()} for {check_in} to {check_out}. "
-                f"Google may have blocked the automated search, or no results are available."
+                f"No hotels found in {city_code.upper()} ({city_name}) for {check_in} to {check_out}. "
+                f"Google may have blocked the automated search, or no results are available.\n\n"
+                f"**Page preview:** {snippet}"
             )
 
         hotels.sort(key=lambda h: float(h.get('price', 9999)))
@@ -1874,9 +1994,10 @@ def search_hotels_tool(args: Dict[str, Any]) -> str:
             stars_text = f' {"*" * int(rating)}' if rating else ''
             price = h.get('price', '?')
             currency = h.get('currency', 'USD')
+            sym = next((s for s, c in _CURRENCY_SYMBOLS.items() if c == currency), '$')
 
             lines.append(
-                f"{i}. **{name}**{stars_text} | **${price} {currency}** total"
+                f"{i}. **{name}**{stars_text} | **{sym}{price} {currency}** total"
             )
 
         return '\n'.join(lines)
@@ -2716,6 +2837,9 @@ def main():
         GITHUB_MCP_DEFINITION,
         CREATE_GITHUB_ISSUE_DEFINITION,
         PLAYWRIGHT_MCP_DEFINITION,
+        SEARCH_FLIGHTS_DEFINITION,
+        BOOK_TRAVEL_DEFINITION,
+        SEARCH_HOTELS_DEFINITION,
     ]
     model_name = 'gpt-4o'
 
