@@ -2065,6 +2065,10 @@ def book_travel_tool(args: Dict[str, Any]) -> str:
     total_price = args.get('total_price', 0)
     currency = args.get('currency', 'USD')
 
+    # Payment fields
+    card_last_four = args.get('card_last_four', '')
+    card_holder_name = args.get('card_holder_name', '')
+
     # Flight-specific fields
     airline = args.get('airline', '')
     flight_number = args.get('flight_number', '')
@@ -2094,6 +2098,8 @@ def book_travel_tool(args: Dict[str, Any]) -> str:
         return "Error: passenger_email is required."
     if not total_price or float(total_price) <= 0:
         return "Error: total_price must be a positive number."
+    if not card_last_four:
+        return "Error: card_last_four is required for payment."
 
     # Generate a mock booking reference
     booking_ref = uuid.uuid4().hex[:10].upper()
@@ -2105,8 +2111,11 @@ def book_travel_tool(args: Dict[str, Any]) -> str:
         f"**Booking Reference:** `{booking_ref}`",
         f"**Status:** Confirmed",
         f"**Passenger:** {passenger_name} ({passenger_email})",
-        f"**Type:** {booking_type.title()}",
+        f"**Payment:** Card ending in ****{card_last_four}",
     ]
+    if card_holder_name:
+        lines.append(f"**Card Holder:** {card_holder_name}")
+    lines.append(f"**Type:** {booking_type.title()}")
 
     if booking_type == 'flight':
         lines.append(f"**Flight:** {airline} {flight_number}")
@@ -2144,8 +2153,16 @@ BOOK_TRAVEL_DEFINITION = ToolDefinition(
     description=(
         "Create a mock booking for a flight or hotel. Use this AFTER searching with "
         "search_flights or search_hotels. Extract the relevant details (airline, price, "
-        "times, hotel name, etc.) from the search results and pass them along with the "
-        "passenger's name and email. Returns a booking confirmation with a unique reference code."
+        "times, hotel name, etc.) from the search results.\n\n"
+        "IMPORTANT - You MUST collect the passenger's booking details STEP BY STEP in this exact order. "
+        "Ask ONE question at a time, wait for the user's response, then ask the next:\n"
+        "  Step 1: Ask for the passenger's full name.\n"
+        "  Step 2: Ask for their card details (card number, expiry date, and CVV). "
+        "Store only the last 4 digits of the card number as card_last_four and the name on the card as card_holder_name.\n"
+        "  Step 3: Ask for their email address.\n"
+        "  Step 4: Only after collecting ALL the above, call this tool with the complete information.\n\n"
+        "Do NOT ask for multiple details in the same message. Do NOT call this tool until all 3 steps are completed. "
+        "Returns a booking confirmation with a unique reference code."
     ),
     parameters={
         "type": "object",
@@ -2161,6 +2178,14 @@ BOOK_TRAVEL_DEFINITION = ToolDefinition(
             "passenger_email": {
                 "type": "string",
                 "description": "Email address of the passenger."
+            },
+            "card_last_four": {
+                "type": "string",
+                "description": "Last 4 digits of the payment card number (e.g. '4242')."
+            },
+            "card_holder_name": {
+                "type": "string",
+                "description": "Name on the payment card."
             },
             "total_price": {
                 "type": "number",
@@ -2235,7 +2260,7 @@ BOOK_TRAVEL_DEFINITION = ToolDefinition(
                 "description": "Room type/category (hotels only)."
             }
         },
-        "required": ["booking_type", "passenger_name", "passenger_email", "total_price"]
+        "required": ["booking_type", "passenger_name", "passenger_email", "card_last_four", "total_price"]
     },
     function=book_travel_tool,
     requires_approval=True
