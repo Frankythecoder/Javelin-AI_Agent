@@ -18,6 +18,7 @@ import time
 import re
 import subprocess
 import platform
+import uuid
 import cv2
 import shutil
 from email.mime.multipart import MIMEMultipart
@@ -30,13 +31,15 @@ from urllib.parse import quote
 from openai import OpenAI
 from typing import Dict, List, Callable, Any
 from django.conf import settings
+from datetime import datetime, timedelta
+from decimal import Decimal
+from typing import Dict, Any
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from docx import Document
 from openpyxl import Workbook
 from pptx import Presentation
-
 
 class AgentControlState:
     def __init__(self):
@@ -1128,7 +1131,6 @@ def recognize_audio_tool(args: Dict[str, Any]) -> str:
         if converted_path and os.path.exists(converted_path):
             os.remove(converted_path)
 
-
 SEARCH_FILE_DEFINITION = ToolDefinition(
     name="search_file",
     description="Search for a file by name across common directories (Desktop, Documents, Downloads, Pictures, etc.) and return its absolute path.",
@@ -1347,6 +1349,776 @@ PLAYWRIGHT_MCP_DEFINITION = ToolDefinition(
     requires_approval=True
 )
 
+
+# ─── Travel Search Tools ─────────────────────────────────────────────
+
+def _launch_travel_browser():
+    """
+    Launch a headless Chromium browser via sync_playwright with
+    anti-detection settings suitable for interacting with Google
+    Flights / Hotels.
+
+    Returns (playwright_instance, browser, context, page).
+    The caller MUST close browser and stop playwright when done.
+    """
+    from playwright.sync_api import sync_playwright
+
+    pw = sync_playwright().start()
+
+    browser = pw.chromium.launch(
+        headless=True,
+        args=[
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+        ],
+    )
+
+    context = browser.new_context(
+        user_agent=(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        viewport={"width": 1920, "height": 1080},
+        locale="en-US",
+        timezone_id="America/New_York",
+    )
+
+    # Block heavy resources to speed up loading
+    context.route(
+        re.compile(r"\.(png|jpg|jpeg|gif|webp|svg|woff2?|ttf|otf|mp4|webm)$", re.I),
+        lambda route: route.abort(),
+    )
+
+    page = context.new_page()
+
+    # Remove the webdriver navigator flag that sites use to detect automation
+    page.add_init_script("""
+        Object.defineProperty(navigator, 'webdriver', { get: () => false });
+    """)
+
+    return pw, browser, context, page
+
+
+def _dismiss_consent_banners(page):
+    """Try to dismiss Google consent / cookie banners."""
+    for sel in [
+        "button:has-text('Accept all')",
+        "button:has-text('Accept')",
+        "button:has-text('I agree')",
+        "button:has-text('Reject all')",
+    ]:
+        try:
+            btn = page.query_selector(sel)
+            if btn and btn.is_visible():
+                btn.click()
+                page.wait_for_timeout(1000)
+                break
+        except Exception:
+            continue
+
+
+def _parse_flights_from_text(body, origin, destination, dep_date):
+    """
+    Parse raw body text from Google Flights into structured flight dicts.
+    Anchors on price lines ($XXX) and walks backwards to extract
+    airline, times, duration, stops, and route codes.
+    """
+    def _to_24h(t):
+        if not t:
+            return ""
+        t = t.strip().upper()
+        m = re.match(r"(\d{1,2}):(\d{2})\s*(AM|PM)", t)
+        if not m:
+            return ""
+        h, mi, ap = int(m[1]), int(m[2]), m[3]
+        if ap == "PM" and h != 12:
+            h += 12
+        if ap == "AM" and h == 12:
+            h = 0
+        return f"{h:02d}:{mi:02d}"
+
+    def _dur_to_display(text):
+        m = re.search(r"(\d+)\s*h(?:r|our)?s?\s*(?:(\d+)\s*m(?:in)?)?", text, re.I)
+        if not m:
+            m2 = re.search(r"(\d+)\s*m(?:in)?", text, re.I)
+            if m2:
+                total = int(m2[1])
+                return f"{total // 60}h {total % 60}m"
+            return ""
+        h = m[1]
+        mi = m[2] or "0"
+        return f"{h}h {mi}m"
+
+    lines = [ln.strip() for ln in body.split("\n") if ln.strip()]
+    flights = []
+    i = 0
+
+    while i < len(lines):
+        price_match = re.match(r"^\$[\d,]+$", lines[i])
+        if not price_match:
+            i += 1
+            continue
+
+        price = lines[i].replace("$", "").replace(",", "")
+        window = lines[max(0, i - 12): i]
+        window_text = "\n".join(window)
+
+        # Time pattern: "5:00 AM – 1:30 PM"
+        time_m = re.search(
+            r"(\d{1,2}:\d{2}\s*[AP]M)\s*[\u2013\-\u2014]+\s*(\d{1,2}:\d{2}\s*[AP]M)",
+            window_text, re.I
+        )
+        dep_time = _to_24h(time_m[1]) if time_m else ""
+        arr_time = _to_24h(time_m[2]) if time_m else ""
+
+        duration = _dur_to_display(window_text)
+
+        nonstop = bool(re.search(r"non\s*-?\s*stop", window_text, re.I))
+        stops_m = re.search(r"(\d+)\s+stop", window_text, re.I)
+        stops = 0 if nonstop else (int(stops_m[1]) if stops_m else 0)
+
+        airline = "Airline"
+        for ln in window:
+            if (
+                len(ln) > 2
+                and len(ln) < 50
+                and not re.search(r"[\$\d]{2}", ln)
+                and "\u2013" not in ln and "-" not in ln
+                and "stop" not in ln.lower()
+                and "hr" not in ln.lower()
+                and "min" not in ln.lower()
+                and "AM" not in ln
+                and "PM" not in ln
+            ):
+                airline = ln
+                break
+
+        route_m = re.search(r"([A-Z]{3})\s*[\u2013\-\u2014]\s*([A-Z]{3})", window_text)
+        dep_apt = route_m[1] if route_m else origin.upper()
+        arr_apt = route_m[2] if route_m else destination.upper()
+
+        flights.append({
+            'price': price,
+            'currency': 'USD',
+            'airline': airline,
+            'departure_time': dep_time,
+            'arrival_time': arr_time,
+            'departure_airport': dep_apt,
+            'arrival_airport': arr_apt,
+            'duration': duration,
+            'stops': stops,
+        })
+
+        i += 1
+
+    # De-duplicate by price + airline
+    seen = set()
+    unique = []
+    for f in flights:
+        key = (f["price"], f["airline"])
+        if key not in seen:
+            seen.add(key)
+            unique.append(f)
+
+    return unique
+
+
+def _parse_hotels_from_text(body, city_code, check_in, check_out):
+    """
+    Parse raw body text from Google Hotels into structured hotel dicts.
+    Anchors on price lines ($XXX) and walks backwards to extract
+    hotel name, star rating, and review score.
+    """
+    lines = [ln.strip() for ln in body.split("\n") if ln.strip()]
+    hotels = []
+    i = 0
+
+    while i < len(lines):
+        price_m = re.match(r"^\$[\d,]+$", lines[i])
+        if not price_m:
+            i += 1
+            continue
+
+        price = lines[i].replace("$", "").replace(",", "")
+        window = lines[max(0, i - 10): i]
+        window_text = "\n".join(window)
+
+        name = "Hotel"
+        for ln in window:
+            if (
+                len(ln) > 3
+                and len(ln) < 80
+                and not re.match(r"^[\d\.\$\(\),\s]+$", ln)
+                and "star" not in ln.lower()
+                and "rating" not in ln.lower()
+                and "review" not in ln.lower()
+                and not re.match(r"^\d[\.\d]*$", ln)
+            ):
+                name = ln
+                break
+
+        star_m = re.search(r"(\d)[- ]star", window_text, re.I)
+        rating = star_m[1] if star_m else ""
+
+        hotels.append({
+            'name': name,
+            'rating': rating,
+            'price': price,
+            'currency': 'USD',
+        })
+
+        i += 1
+
+    # De-duplicate by name
+    seen = set()
+    unique = []
+    for h in hotels:
+        if h["name"] not in seen:
+            seen.add(h["name"])
+            unique.append(h)
+
+    return unique
+
+
+def search_flights_tool(args: Dict[str, Any]) -> str:
+    """Search for flights by interacting with Google Flights via Playwright."""
+
+    origin = args.get('origin', '').strip()
+    destination = args.get('destination', '').strip()
+    departure_date = args.get('departure_date', '').strip()
+    return_date = args.get('return_date', '').strip() if args.get('return_date') else ''
+    adults = int(args.get('adults', 1))
+
+    if not origin or not destination or not departure_date:
+        return "Error: origin, destination, and departure_date are required."
+
+    pw = browser = None
+    try:
+        pw, browser, ctx, page = _launch_travel_browser()
+
+        # Strategy A: URL-based approach (most reliable)
+        query_parts = f"flights from {origin} to {destination} on {departure_date}"
+        if return_date:
+            query_parts += f" return {return_date}"
+        url = (
+            "https://www.google.com/travel/flights?q="
+            + query_parts.replace(" ", "+")
+            + "&curr=USD"
+        )
+
+        page.goto(url, timeout=45000, wait_until="domcontentloaded")
+        page.wait_for_timeout(8000)
+
+        _dismiss_consent_banners(page)
+        page.wait_for_timeout(2000)
+
+        body_text = page.inner_text("body")
+
+        # Strategy B: If URL approach yields no results, try form interaction
+        if not re.search(r'\$\d+', body_text):
+            page.goto("https://www.google.com/travel/flights", timeout=45000, wait_until="domcontentloaded")
+            page.wait_for_timeout(5000)
+            _dismiss_consent_banners(page)
+
+            # Fill origin field
+            try:
+                from_input = page.locator('[aria-label*="Where from"], [aria-label*="departure"], [placeholder*="Where from"]').first
+                from_input.click()
+                page.wait_for_timeout(500)
+                page.keyboard.press("Control+a")
+                page.keyboard.type(origin, delay=80)
+                page.wait_for_timeout(1000)
+                page.keyboard.press("Enter")
+                page.wait_for_timeout(800)
+            except Exception:
+                pass
+
+            # Fill destination field
+            try:
+                to_input = page.locator('[aria-label*="Where to"], [aria-label*="destination"], [placeholder*="Where to"]').first
+                to_input.click()
+                page.wait_for_timeout(500)
+                page.keyboard.type(destination, delay=80)
+                page.wait_for_timeout(1000)
+                page.keyboard.press("Enter")
+                page.wait_for_timeout(800)
+            except Exception:
+                pass
+
+            # Fill departure date
+            try:
+                dep_date_input = page.locator('[aria-label*="Departure"], [data-placeholder*="Departure"]').first
+                dep_date_input.click()
+                page.wait_for_timeout(500)
+                page.keyboard.type(departure_date, delay=50)
+                page.wait_for_timeout(500)
+                page.keyboard.press("Enter")
+                page.wait_for_timeout(500)
+            except Exception:
+                pass
+
+            # Fill return date if provided
+            if return_date:
+                try:
+                    ret_date_input = page.locator('[aria-label*="Return"], [data-placeholder*="Return"]').first
+                    ret_date_input.click()
+                    page.wait_for_timeout(500)
+                    page.keyboard.type(return_date, delay=50)
+                    page.keyboard.press("Enter")
+                    page.wait_for_timeout(500)
+                except Exception:
+                    pass
+
+            # Click Search button
+            try:
+                search_btn = page.locator('button:has-text("Search"), button:has-text("Explore"), button[aria-label*="Search"]').first
+                search_btn.click()
+                page.wait_for_timeout(8000)
+            except Exception:
+                pass
+
+            body_text = page.inner_text("body")
+
+        # Parse results
+        flights = _parse_flights_from_text(body_text, origin, destination, departure_date)
+
+        if not flights:
+            return (
+                f"No flights found from {origin.upper()} to {destination.upper()} "
+                f"on {departure_date}. Google may have blocked the automated search, "
+                f"or no results are available for these dates."
+            )
+
+        flights.sort(key=lambda f: float(f.get('price', 9999)))
+
+        lines = [
+            f"Found {len(flights)} flight(s) from {origin.upper()} to "
+            f"{destination.upper()} on {departure_date}:\n"
+        ]
+        for i, f in enumerate(flights[:15], 1):
+            airline = f.get('airline', 'Unknown')
+            dep_time = f.get('departure_time', '')
+            arr_time = f.get('arrival_time', '')
+            dep_apt = f.get('departure_airport', origin.upper())
+            arr_apt = f.get('arrival_airport', destination.upper())
+            stops = f.get('stops', 0)
+            stops_text = 'Nonstop' if stops == 0 else f'{stops} stop{"s" if stops > 1 else ""}'
+            duration = f.get('duration', '')
+            price = f.get('price', '?')
+            currency = f.get('currency', 'USD')
+
+            lines.append(
+                f"{i}. **{airline}** | {dep_apt} {dep_time} \u2192 {arr_apt} {arr_time} | "
+                f"{duration} | {stops_text} | **${price} {currency}**"
+            )
+
+        return '\n'.join(lines)
+
+    except Exception as exc:
+        return f"Flight search error: {exc}"
+    finally:
+        try:
+            if browser:
+                browser.close()
+        except Exception:
+            pass
+        try:
+            if pw:
+                pw.stop()
+        except Exception:
+            pass
+
+
+SEARCH_FLIGHTS_DEFINITION = ToolDefinition(
+    name="search_flights",
+    description=(
+        "Search for flight offers between airports. Returns a list of available flights with "
+        "airlines, times, duration, stops, and prices. Use IATA airport codes (e.g. LAX, JFK, SYD). "
+        "Dates must be in YYYY-MM-DD format."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "origin": {
+                "type": "string",
+                "description": "Origin IATA airport code (e.g. 'LAX', 'SYD', 'LHR')."
+            },
+            "destination": {
+                "type": "string",
+                "description": "Destination IATA airport code (e.g. 'JFK', 'NRT', 'CDG')."
+            },
+            "departure_date": {
+                "type": "string",
+                "description": "Departure date in YYYY-MM-DD format."
+            },
+            "return_date": {
+                "type": "string",
+                "description": "Optional return date in YYYY-MM-DD format for round trips."
+            },
+            "adults": {
+                "type": "integer",
+                "description": "Number of adult passengers (default 1)."
+            }
+        },
+        "required": ["origin", "destination", "departure_date"]
+    },
+    function=search_flights_tool,
+    requires_approval=False
+)
+
+
+def search_hotels_tool(args: Dict[str, Any]) -> str:
+    """Search for hotels by interacting with Google Hotels via Playwright."""
+
+    city_code = args.get('city_code', '').strip()
+    check_in = args.get('check_in', '').strip()
+    check_out = args.get('check_out', '').strip()
+    adults = int(args.get('adults', 1))
+    rooms = int(args.get('rooms', 1))
+
+    if not city_code or not check_in or not check_out:
+        return "Error: city_code, check_in, and check_out are required."
+
+    pw = browser = None
+    try:
+        pw, browser, ctx, page = _launch_travel_browser()
+
+        # Strategy A: URL-based approach
+        query = f"hotels in {city_code} {check_in} to {check_out}"
+        url = (
+            "https://www.google.com/travel/hotels?q="
+            + query.replace(" ", "+")
+            + "&curr=USD"
+        )
+
+        page.goto(url, timeout=45000, wait_until="domcontentloaded")
+        page.wait_for_timeout(8000)
+        _dismiss_consent_banners(page)
+        page.wait_for_timeout(2000)
+
+        body_text = page.inner_text("body")
+
+        # Strategy B: If no price patterns found, try form interaction
+        if not re.search(r'\$\d+', body_text):
+            page.goto("https://www.google.com/travel/hotels", timeout=45000, wait_until="domcontentloaded")
+            page.wait_for_timeout(5000)
+            _dismiss_consent_banners(page)
+
+            # Type destination into the search field
+            try:
+                search_input = page.locator(
+                    '[aria-label*="Search"], [aria-label*="destination"], '
+                    '[placeholder*="Search"], input[type="text"]'
+                ).first
+                search_input.click()
+                page.wait_for_timeout(500)
+                page.keyboard.press("Control+a")
+                page.keyboard.type(city_code, delay=80)
+                page.wait_for_timeout(1000)
+                page.keyboard.press("Enter")
+                page.wait_for_timeout(1000)
+            except Exception:
+                pass
+
+            # Fill check-in date
+            try:
+                checkin_input = page.locator('[aria-label*="Check-in"], [data-placeholder*="Check-in"]').first
+                checkin_input.click()
+                page.wait_for_timeout(500)
+                page.keyboard.type(check_in, delay=50)
+                page.keyboard.press("Enter")
+                page.wait_for_timeout(500)
+            except Exception:
+                pass
+
+            # Fill check-out date
+            try:
+                checkout_input = page.locator('[aria-label*="Check-out"], [data-placeholder*="Check-out"]').first
+                checkout_input.click()
+                page.wait_for_timeout(500)
+                page.keyboard.type(check_out, delay=50)
+                page.keyboard.press("Enter")
+                page.wait_for_timeout(500)
+            except Exception:
+                pass
+
+            # Click search
+            try:
+                search_btn = page.locator('button:has-text("Search"), button:has-text("Explore")').first
+                search_btn.click()
+                page.wait_for_timeout(8000)
+            except Exception:
+                pass
+
+            body_text = page.inner_text("body")
+
+        # Parse results
+        hotels = _parse_hotels_from_text(body_text, city_code, check_in, check_out)
+
+        if not hotels:
+            return (
+                f"No hotels found in {city_code.upper()} for {check_in} to {check_out}. "
+                f"Google may have blocked the automated search, or no results are available."
+            )
+
+        hotels.sort(key=lambda h: float(h.get('price', 9999)))
+
+        lines = [
+            f"Found {len(hotels)} hotel(s) in {city_code.upper()} "
+            f"({check_in} to {check_out}):\n"
+        ]
+        for i, h in enumerate(hotels[:15], 1):
+            name = h.get('name', 'Unknown Hotel')
+            rating = h.get('rating', '')
+            stars_text = f' {"*" * int(rating)}' if rating else ''
+            price = h.get('price', '?')
+            currency = h.get('currency', 'USD')
+
+            lines.append(
+                f"{i}. **{name}**{stars_text} | **${price} {currency}** total"
+            )
+
+        return '\n'.join(lines)
+
+    except Exception as exc:
+        return f"Hotel search error: {exc}"
+    finally:
+        try:
+            if browser:
+                browser.close()
+        except Exception:
+            pass
+        try:
+            if pw:
+                pw.stop()
+        except Exception:
+            pass
+
+
+SEARCH_HOTELS_DEFINITION = ToolDefinition(
+    name="search_hotels",
+    description=(
+        "Search for hotel offers in a city. Returns a list of available hotels with "
+        "names, star ratings, prices, and room details. Use IATA city codes (e.g. NYC, LON, PAR). "
+        "Dates must be in YYYY-MM-DD format."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "city_code": {
+                "type": "string",
+                "description": "IATA city code (e.g. 'NYC', 'LON', 'PAR', 'SYD')."
+            },
+            "check_in": {
+                "type": "string",
+                "description": "Check-in date in YYYY-MM-DD format."
+            },
+            "check_out": {
+                "type": "string",
+                "description": "Check-out date in YYYY-MM-DD format."
+            },
+            "adults": {
+                "type": "integer",
+                "description": "Number of adult guests (default 1)."
+            },
+            "rooms": {
+                "type": "integer",
+                "description": "Number of rooms (default 1)."
+            }
+        },
+        "required": ["city_code", "check_in", "check_out"]
+    },
+    function=search_hotels_tool,
+    requires_approval=False
+)
+
+
+def book_travel_tool(args: Dict[str, Any]) -> str:
+    """Create a mock travel booking (flight or hotel) and return a confirmation.
+    No database storage -- generates a UUID reference in memory."""
+
+    booking_type = args.get('booking_type', '')
+    passenger_name = args.get('passenger_name', '')
+    passenger_email = args.get('passenger_email', '')
+    total_price = args.get('total_price', 0)
+    currency = args.get('currency', 'USD')
+
+    # Flight-specific fields
+    airline = args.get('airline', '')
+    flight_number = args.get('flight_number', '')
+    origin = args.get('origin', '')
+    destination = args.get('destination', '')
+    departure_date = args.get('departure_date', '')
+    return_date = args.get('return_date', '')
+    departure_time = args.get('departure_time', '')
+    arrival_time = args.get('arrival_time', '')
+    stops = args.get('stops', 0)
+    duration = args.get('duration', '')
+    booking_class = args.get('booking_class', 'ECONOMY')
+
+    # Hotel-specific fields
+    hotel_name = args.get('hotel_name', '')
+    check_in = args.get('check_in', '')
+    check_out = args.get('check_out', '')
+    rating = args.get('rating', '')
+    room_type = args.get('room_type', '')
+
+    # Validation
+    if not booking_type or booking_type not in ('flight', 'hotel'):
+        return "Error: booking_type must be 'flight' or 'hotel'."
+    if not passenger_name:
+        return "Error: passenger_name is required."
+    if not passenger_email:
+        return "Error: passenger_email is required."
+    if not total_price or float(total_price) <= 0:
+        return "Error: total_price must be a positive number."
+
+    # Generate a mock booking reference
+    booking_ref = uuid.uuid4().hex[:10].upper()
+
+    # Build confirmation message
+    lines = [
+        "## Booking Confirmed!",
+        "",
+        f"**Booking Reference:** `{booking_ref}`",
+        f"**Status:** Confirmed",
+        f"**Passenger:** {passenger_name} ({passenger_email})",
+        f"**Type:** {booking_type.title()}",
+    ]
+
+    if booking_type == 'flight':
+        lines.append(f"**Flight:** {airline} {flight_number}")
+        lines.append(f"**Route:** {origin} \u2192 {destination}")
+        if departure_time:
+            lines.append(f"**Departure:** {departure_date} {departure_time}")
+        if arrival_time:
+            lines.append(f"**Arrival:** {arrival_time}")
+        if duration:
+            lines.append(f"**Duration:** {duration}")
+        stops_int = int(stops) if stops else 0
+        stops_text = 'Nonstop' if stops_int == 0 else f'{stops_int} stop{"s" if stops_int > 1 else ""}'
+        lines.append(f"**Stops:** {stops_text}")
+        lines.append(f"**Class:** {booking_class}")
+    else:
+        lines.append(f"**Hotel:** {hotel_name}")
+        if rating:
+            r = int(rating)
+            filled = '\u2605' * r
+            empty = '\u2606' * (5 - r)
+            lines.append(f"**Rating:** {filled}{empty}")
+        lines.append(f"**Dates:** {check_in} to {check_out}")
+        if room_type:
+            lines.append(f"**Room:** {room_type}")
+
+    lines.append(f"**Total Price:** ${float(total_price):.2f} {currency}")
+    lines.append("")
+    lines.append("*This is a mock booking for demonstration purposes.*")
+
+    return '\n'.join(lines)
+
+
+BOOK_TRAVEL_DEFINITION = ToolDefinition(
+    name="book_travel",
+    description=(
+        "Create a mock booking for a flight or hotel. Use this AFTER searching with "
+        "search_flights or search_hotels. Extract the relevant details (airline, price, "
+        "times, hotel name, etc.) from the search results and pass them along with the "
+        "passenger's name and email. Returns a booking confirmation with a unique reference code."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "booking_type": {
+                "type": "string",
+                "description": "Type of booking: 'flight' or 'hotel'."
+            },
+            "passenger_name": {
+                "type": "string",
+                "description": "Full name of the passenger (e.g. 'John Doe')."
+            },
+            "passenger_email": {
+                "type": "string",
+                "description": "Email address of the passenger."
+            },
+            "total_price": {
+                "type": "number",
+                "description": "Total price for the booking."
+            },
+            "currency": {
+                "type": "string",
+                "description": "Currency code (default 'USD')."
+            },
+            "airline": {
+                "type": "string",
+                "description": "Airline name (flights only)."
+            },
+            "flight_number": {
+                "type": "string",
+                "description": "Flight number (flights only)."
+            },
+            "origin": {
+                "type": "string",
+                "description": "Departure airport code (flights only)."
+            },
+            "destination": {
+                "type": "string",
+                "description": "Arrival airport code (flights only)."
+            },
+            "departure_date": {
+                "type": "string",
+                "description": "Departure date YYYY-MM-DD (flights only)."
+            },
+            "return_date": {
+                "type": "string",
+                "description": "Return date YYYY-MM-DD (flights only, if round trip)."
+            },
+            "departure_time": {
+                "type": "string",
+                "description": "Departure time e.g. '08:30' (flights only)."
+            },
+            "arrival_time": {
+                "type": "string",
+                "description": "Arrival time e.g. '14:45' (flights only)."
+            },
+            "stops": {
+                "type": "integer",
+                "description": "Number of stops (flights only)."
+            },
+            "duration": {
+                "type": "string",
+                "description": "Flight duration e.g. '5h 30m' (flights only)."
+            },
+            "booking_class": {
+                "type": "string",
+                "description": "Cabin class e.g. 'ECONOMY', 'BUSINESS' (flights only)."
+            },
+            "hotel_name": {
+                "type": "string",
+                "description": "Hotel name (hotels only)."
+            },
+            "check_in": {
+                "type": "string",
+                "description": "Check-in date YYYY-MM-DD (hotels only)."
+            },
+            "check_out": {
+                "type": "string",
+                "description": "Check-out date YYYY-MM-DD (hotels only)."
+            },
+            "rating": {
+                "type": "string",
+                "description": "Star rating e.g. '4' (hotels only)."
+            },
+            "room_type": {
+                "type": "string",
+                "description": "Room type/category (hotels only)."
+            }
+        },
+        "required": ["booking_type", "passenger_name", "passenger_email", "total_price"]
+    },
+    function=book_travel_tool,
+    requires_approval=True
+)
 
 
 RENAME_FILE_DEFINITION = ToolDefinition(
@@ -1943,7 +2715,7 @@ def main():
         GITHUB_COMMIT_LOCAL_FILE_DEFINITION,
         GITHUB_MCP_DEFINITION,
         CREATE_GITHUB_ISSUE_DEFINITION,
-        PLAYWRIGHT_MCP_DEFINITION
+        PLAYWRIGHT_MCP_DEFINITION,
     ]
     model_name = 'gpt-4o'
 
