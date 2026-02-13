@@ -545,6 +545,15 @@
             text-overflow: ellipsis;
         }
 
+        .file-autocomplete-item .file-folder-path {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 200px;
+        }
+
         .file-autocomplete-item .file-type-badge {
             margin-left: auto;
             font-size: 0.65rem;
@@ -1236,11 +1245,14 @@
                 const icon = file.type === 'directory' ? '\uD83D\uDCC1' : '\uD83D\uDCC4';
                 const activeClass = i === fileAutocompleteIndex ? ' active' : '';
                 const badge = file.type === 'directory' ? 'folder' : file.name.split('.').pop();
-                const displayPath = file.rel_path || file.name;
+                const relPath = file.rel_path || file.name;
+                // Show folder path only if file is inside a subfolder
+                const folderPath = relPath.includes('/') ? relPath.substring(0, relPath.lastIndexOf('/')) : '';
                 html += `
                     <div class="file-autocomplete-item${activeClass}" data-index="${i}">
                         <span class="file-icon">${icon}</span>
-                        <span class="file-name">${escapeHtml(displayPath)}</span>
+                        <span class="file-name">${escapeHtml(file.name)}</span>
+                        ${folderPath ? `<span class="file-folder-path">${escapeHtml(folderPath)}</span>` : ''}
                         <span class="file-type-badge">${escapeHtml(badge)}</span>
                     </div>
                 `;
@@ -1276,10 +1288,10 @@
             const text = messageInput.value;
             const cursorPos = messageInput.selectionStart;
 
-            // Replace @query with @rel_path
+            // Replace @query with @filename
             const before = text.substring(0, fileAtTriggerPos);
             const after = text.substring(cursorPos);
-            const insertion = '@' + (file.rel_path || file.name) + ' ';
+            const insertion = '@' + file.name + ' ';
             messageInput.value = before + insertion + after;
 
             // Set cursor after inserted text
