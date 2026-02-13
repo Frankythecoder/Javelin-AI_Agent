@@ -40,6 +40,14 @@ CREATE_PDF_DEFINITION = agents_module.CREATE_PDF_DEFINITION
 CREATE_DOCX_DEFINITION = agents_module.CREATE_DOCX_DEFINITION
 CREATE_EXCEL_DEFINITION = agents_module.CREATE_EXCEL_DEFINITION
 CREATE_PPTX_DEFINITION = agents_module.CREATE_PPTX_DEFINITION
+READ_PDF_DEFINITION = agents_module.READ_PDF_DEFINITION
+READ_DOCX_DEFINITION = agents_module.READ_DOCX_DEFINITION
+READ_EXCEL_DEFINITION = agents_module.READ_EXCEL_DEFINITION
+READ_PPTX_DEFINITION = agents_module.READ_PPTX_DEFINITION
+EDIT_PDF_DEFINITION = agents_module.EDIT_PDF_DEFINITION
+EDIT_DOCX_DEFINITION = agents_module.EDIT_DOCX_DEFINITION
+EDIT_EXCEL_DEFINITION = agents_module.EDIT_EXCEL_DEFINITION
+EDIT_PPTX_DEFINITION = agents_module.EDIT_PPTX_DEFINITION
 GITHUB_CREATE_BRANCH_DEFINITION = agents_module.GITHUB_CREATE_BRANCH_DEFINITION
 GITHUB_COMMIT_FILE_DEFINITION = agents_module.GITHUB_COMMIT_FILE_DEFINITION
 GITHUB_COMMIT_LOCAL_FILE_DEFINITION = agents_module.GITHUB_COMMIT_LOCAL_FILE_DEFINITION
@@ -73,6 +81,14 @@ tools = [
     CREATE_DOCX_DEFINITION,
     CREATE_EXCEL_DEFINITION,
     CREATE_PPTX_DEFINITION,
+    READ_PDF_DEFINITION,
+    READ_DOCX_DEFINITION,
+    READ_EXCEL_DEFINITION,
+    READ_PPTX_DEFINITION,
+    EDIT_PDF_DEFINITION,
+    EDIT_DOCX_DEFINITION,
+    EDIT_EXCEL_DEFINITION,
+    EDIT_PPTX_DEFINITION,
     GITHUB_CREATE_BRANCH_DEFINITION,
     GITHUB_COMMIT_FILE_DEFINITION,
     GITHUB_COMMIT_LOCAL_FILE_DEFINITION,
@@ -250,6 +266,41 @@ def chat_sessions_api(request):
 
     except json.JSONDecodeError:
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+def list_directory_files_api(request):
+    """Return files in the agent's current working directory."""
+    if request.method != 'GET':
+        return JsonResponse({'error': 'Invalid request'}, status=405)
+    try:
+        cwd = os.getcwd()
+        entries = []
+        skip_dirs = {'.git', '__pycache__', 'node_modules', '.venv', 'venv', '.env'}
+        for dirpath, dirnames, filenames in os.walk(cwd):
+            # Skip hidden/cache directories
+            dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+            rel_dir = os.path.relpath(dirpath, cwd)
+            for fname in filenames:
+                rel_path = fname if rel_dir == '.' else os.path.join(rel_dir, fname).replace('\\', '/')
+                entries.append({
+                    'name': fname,
+                    'rel_path': rel_path,
+                    'type': 'file',
+                    'path': os.path.join(dirpath, fname),
+                })
+            for dname in dirnames:
+                rel_path = dname if rel_dir == '.' else os.path.join(rel_dir, dname).replace('\\', '/')
+                entries.append({
+                    'name': dname,
+                    'rel_path': rel_path,
+                    'type': 'directory',
+                    'path': os.path.join(dirpath, dname),
+                })
+        entries.sort(key=lambda e: e['rel_path'])
+        return JsonResponse({'files': entries, 'cwd': cwd})
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
 

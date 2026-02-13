@@ -172,6 +172,7 @@
             padding: 1.5rem 2rem;
             background: white;
             border-top: 1px solid var(--border);
+            position: relative;
         }
 
         #chat-form {
@@ -473,6 +474,93 @@
             background: #fee2e2;
             color: #ef4444;
         }
+
+        /* File Autocomplete Dropdown */
+        .file-autocomplete {
+            position: absolute;
+            bottom: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.12);
+            max-height: 250px;
+            overflow-y: auto;
+            z-index: 200;
+            margin-bottom: 4px;
+        }
+
+        .file-autocomplete::-webkit-scrollbar { width: 6px; }
+        .file-autocomplete::-webkit-scrollbar-track { background: transparent; }
+        .file-autocomplete::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+
+        .file-autocomplete-header {
+            padding: 0.5rem 0.75rem;
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid var(--border);
+            background: #f8fafc;
+            border-radius: 12px 12px 0 0;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        .file-autocomplete-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            cursor: pointer;
+            transition: background 0.1s;
+            border-bottom: 1px solid rgba(226, 232, 240, 0.5);
+        }
+
+        .file-autocomplete-item:last-child { border-bottom: none; }
+
+        .file-autocomplete-item:hover,
+        .file-autocomplete-item.active {
+            background: #f1f5f9;
+        }
+
+        .file-autocomplete-item .file-icon {
+            font-size: 0.9rem;
+            flex-shrink: 0;
+            width: 20px;
+            text-align: center;
+        }
+
+        .file-autocomplete-item .file-name {
+            font-size: 0.85rem;
+            color: var(--text-main);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .file-autocomplete-item .file-type-badge {
+            margin-left: auto;
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            background: #f1f5f9;
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+
+        .file-autocomplete-empty {
+            padding: 0.75rem;
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
     </style>
 </head>
 <body>
@@ -507,6 +595,7 @@
         </div>
         
         <div class="chat-input-container">
+            <div id="file-autocomplete" class="file-autocomplete" style="display:none;"></div>
             <form id="chat-form">
                 <textarea id="message" autocomplete="off" placeholder="Message Javelin..." required rows="1"></textarea>
                 <button type="button" id="mic-btn" class="btn-mic" onclick="toggleMic()" title="Start voice input">
@@ -999,7 +1088,29 @@
         messageInput.focus();
 
         // Handle Shift + Enter for new lines, Enter for submit
+        // (Also handles file autocomplete keyboard navigation)
         messageInput.addEventListener('keydown', (e) => {
+            if (fileAutocompleteVisible) {
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    fileAutocompleteIndex = Math.min(fileAutocompleteIndex + 1, fileFilteredFiles.length - 1);
+                    updateAutocompleteHighlight();
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    fileAutocompleteIndex = Math.max(fileAutocompleteIndex - 1, 0);
+                    updateAutocompleteHighlight();
+                } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    selectFileAutocompleteItem(fileAutocompleteIndex);
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    hideFileAutocomplete();
+                } else if (e.key === 'Tab') {
+                    e.preventDefault();
+                    selectFileAutocompleteItem(fileAutocompleteIndex);
+                }
+                return;
+            }
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 chatForm.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
@@ -1010,6 +1121,184 @@
         messageInput.addEventListener('input', function() {
             this.style.height = 'auto';
             this.style.height = (this.scrollHeight) + 'px';
+        });
+
+        // ─── File Autocomplete (@filename) ──────────────────────────
+        const fileAutocompleteEl = document.getElementById('file-autocomplete');
+        let fileAutocompleteVisible = false;
+        let fileAutocompleteIndex = 0;
+        let fileAutocompleteFiles = [];   // full list from API
+        let fileFilteredFiles = [];       // filtered by query
+        let fileAtTriggerPos = -1;        // cursor pos where @ was typed
+        let fileAutocompleteFetchCache = null;
+
+        // Detect @ trigger on every input change
+        messageInput.addEventListener('input', function fileAutocompleteInputHandler() {
+            const cursorPos = this.selectionStart;
+            const text = this.value.substring(0, cursorPos);
+
+            // Find the last @ that's at start of text or preceded by whitespace
+            let atPos = -1;
+            for (let i = text.length - 1; i >= 0; i--) {
+                if (text[i] === '@') {
+                    if (i === 0 || /\s/.test(text[i - 1])) {
+                        atPos = i;
+                    }
+                    break;
+                }
+                // If we encounter a space before finding @, stop
+                if (text[i] === ' ' || text[i] === '\n') break;
+            }
+
+            if (atPos >= 0) {
+                const query = text.substring(atPos + 1);
+                // Only trigger if query has no spaces (still typing filename)
+                if (!/\s/.test(query)) {
+                    fileAtTriggerPos = atPos;
+                    showFileAutocomplete(query);
+                    return;
+                }
+            }
+
+            hideFileAutocomplete();
+        });
+
+        async function fetchDirectoryFiles() {
+            try {
+                const res = await fetch('/api/files/');
+                const data = await res.json();
+                if (data.files) {
+                    fileAutocompleteFiles = data.files;
+                    fileAutocompleteFetchCache = data;
+                }
+            } catch (err) {
+                console.error('Failed to fetch directory files', err);
+                fileAutocompleteFiles = [];
+            }
+        }
+
+        async function showFileAutocomplete(query) {
+            // Fetch files if not cached
+            if (!fileAutocompleteFetchCache) {
+                await fetchDirectoryFiles();
+            }
+
+            // Filter by query (case-insensitive, match against name or rel_path)
+            const q = query.toLowerCase();
+            fileFilteredFiles = fileAutocompleteFiles.filter(f =>
+                q === '' || f.name.toLowerCase().includes(q) || (f.rel_path && f.rel_path.toLowerCase().includes(q))
+            );
+
+            // Sort: exact name prefix first, then rel_path prefix, then contains
+            if (q) {
+                fileFilteredFiles.sort((a, b) => {
+                    const aNameStarts = a.name.toLowerCase().startsWith(q) ? 0 : 1;
+                    const bNameStarts = b.name.toLowerCase().startsWith(q) ? 0 : 1;
+                    if (aNameStarts !== bNameStarts) return aNameStarts - bNameStarts;
+                    const aPathStarts = (a.rel_path || a.name).toLowerCase().startsWith(q) ? 0 : 1;
+                    const bPathStarts = (b.rel_path || b.name).toLowerCase().startsWith(q) ? 0 : 1;
+                    if (aPathStarts !== bPathStarts) return aPathStarts - bPathStarts;
+                    return (a.rel_path || a.name).localeCompare(b.rel_path || b.name);
+                });
+            }
+
+            // Limit to 30 results to keep dropdown manageable
+            fileFilteredFiles = fileFilteredFiles.slice(0, 30);
+
+            fileAutocompleteIndex = 0;
+            renderAutocomplete();
+
+            fileAutocompleteEl.style.display = 'block';
+            fileAutocompleteVisible = true;
+        }
+
+        function hideFileAutocomplete() {
+            fileAutocompleteEl.style.display = 'none';
+            fileAutocompleteVisible = false;
+            fileAutocompleteIndex = 0;
+            fileFilteredFiles = [];
+            // Clear cache so next @ trigger gets fresh file list
+            fileAutocompleteFetchCache = null;
+        }
+
+        function renderAutocomplete() {
+            if (fileFilteredFiles.length === 0) {
+                fileAutocompleteEl.innerHTML = `
+                    <div class="file-autocomplete-header">Files in current directory</div>
+                    <div class="file-autocomplete-empty">No files found</div>
+                `;
+                return;
+            }
+
+            const cwd = fileAutocompleteFetchCache ? fileAutocompleteFetchCache.cwd : '';
+            let html = `<div class="file-autocomplete-header">Files in ${escapeHtml(cwd)}</div>`;
+            fileFilteredFiles.forEach((file, i) => {
+                const icon = file.type === 'directory' ? '\uD83D\uDCC1' : '\uD83D\uDCC4';
+                const activeClass = i === fileAutocompleteIndex ? ' active' : '';
+                const badge = file.type === 'directory' ? 'folder' : file.name.split('.').pop();
+                const displayPath = file.rel_path || file.name;
+                html += `
+                    <div class="file-autocomplete-item${activeClass}" data-index="${i}">
+                        <span class="file-icon">${icon}</span>
+                        <span class="file-name">${escapeHtml(displayPath)}</span>
+                        <span class="file-type-badge">${escapeHtml(badge)}</span>
+                    </div>
+                `;
+            });
+
+            fileAutocompleteEl.innerHTML = html;
+
+            // Add click handlers
+            fileAutocompleteEl.querySelectorAll('.file-autocomplete-item').forEach(item => {
+                item.addEventListener('mousedown', (e) => {
+                    e.preventDefault(); // prevent textarea blur
+                    const idx = parseInt(item.dataset.index, 10);
+                    selectFileAutocompleteItem(idx);
+                });
+            });
+        }
+
+        function updateAutocompleteHighlight() {
+            const items = fileAutocompleteEl.querySelectorAll('.file-autocomplete-item');
+            items.forEach((item, i) => {
+                item.classList.toggle('active', i === fileAutocompleteIndex);
+            });
+            // Scroll active item into view
+            if (items[fileAutocompleteIndex]) {
+                items[fileAutocompleteIndex].scrollIntoView({ block: 'nearest' });
+            }
+        }
+
+        function selectFileAutocompleteItem(index) {
+            if (index < 0 || index >= fileFilteredFiles.length) return;
+
+            const file = fileFilteredFiles[index];
+            const text = messageInput.value;
+            const cursorPos = messageInput.selectionStart;
+
+            // Replace @query with @rel_path
+            const before = text.substring(0, fileAtTriggerPos);
+            const after = text.substring(cursorPos);
+            const insertion = '@' + (file.rel_path || file.name) + ' ';
+            messageInput.value = before + insertion + after;
+
+            // Set cursor after inserted text
+            const newPos = fileAtTriggerPos + insertion.length;
+            messageInput.selectionStart = newPos;
+            messageInput.selectionEnd = newPos;
+
+            hideFileAutocomplete();
+            messageInput.focus();
+            messageInput.dispatchEvent(new Event('input')); // trigger resize
+        }
+
+        // Close autocomplete when clicking outside
+        document.addEventListener('mousedown', (e) => {
+            if (fileAutocompleteVisible &&
+                !fileAutocompleteEl.contains(e.target) &&
+                e.target !== messageInput) {
+                hideFileAutocomplete();
+            }
         });
 
     </script>

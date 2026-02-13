@@ -37,9 +37,22 @@ from typing import Dict, Any
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, HRFlowable
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors as rl_colors
+from reportlab.lib.units import inch
+from reportlab.lib.enums import TA_LEFT, TA_CENTER
 from docx import Document
+from docx.shared import Pt, Inches, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
 from openpyxl import Workbook
+from openpyxl.styles import Font as XlFont, PatternFill, Alignment as XlAlignment, Border, Side
+from openpyxl.utils import get_column_letter
 from pptx import Presentation
+from pptx.util import Inches as PptxInches, Pt as PptxPt, Emu
+from pptx.dml.color import RGBColor as PptxRGBColor
+from pptx.enum.text import PP_ALIGN
 
 class AgentControlState:
     def __init__(self):
@@ -2512,204 +2525,379 @@ CHANGE_WORKING_DIRECTORY_DEFINITION = ToolDefinition(
 )
 
 
-CREATE_PDF_DEFINITION = ToolDefinition(
-    name="create_pdf",
-    description="Create a PDF file with improved layout, structure, and diagrams. Supports custom title, introduction, and additional content.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "filename": {
-                "type": "string",
-                "description": "The path and filename for the PDF file to create."
-            },
-            "title": {
-                "type": "string",
-                "description": "The title to display at the top of the PDF."
-            },
-            "introduction": {
-                "type": "string",
-                "description": "The introduction text to include in the PDF."
-            },
-            "content": {
-                "type": "string",
-                "description": "Additional content to include in the PDF."
-            }
-        },
-        "required": ["filename"]
-    },
-    function=lambda args: create_pdf(
-        args.get('filename'),
-        args.get('title', "AI Agent Project Report"),
-        args.get('introduction', "The AI Agent is a dynamic system built with Django framework, integrating advanced AI capabilities."),
-        args.get('content', "")
-    )
-)
+# ─── Markdown Parsing Helper ─────────────────────────────────────────
+
+def _parse_markdown_blocks(text):
+    """Parse markdown text into structured blocks for document rendering."""
+    blocks = []
+    lines = text.split('\n')
+    i = 0
+
+    while i < len(lines):
+        line = lines[i]
+
+        # Code block (fenced)
+        if line.strip().startswith('```'):
+            code_lines = []
+            i += 1
+            while i < len(lines) and not lines[i].strip().startswith('```'):
+                code_lines.append(lines[i])
+                i += 1
+            blocks.append({'type': 'code', 'text': '\n'.join(code_lines)})
+            i += 1
+            continue
+
+        # Heading
+        heading_m = re.match(r'^(#{1,4})\s+(.+)$', line)
+        if heading_m:
+            blocks.append({'type': 'heading', 'level': len(heading_m.group(1)), 'text': heading_m.group(2).strip()})
+            i += 1
+            continue
+
+        # Horizontal rule
+        if re.match(r'^[-*_]{3,}\s*$', line.strip()):
+            blocks.append({'type': 'hr'})
+            i += 1
+            continue
+
+        # Table
+        if '|' in line and i + 1 < len(lines) and re.match(r'^[\s|:-]+$', lines[i + 1]):
+            headers = [c.strip() for c in line.strip().strip('|').split('|')]
+            i += 2  # skip header and separator
+            rows = []
+            while i < len(lines) and '|' in lines[i] and lines[i].strip():
+                row = [c.strip() for c in lines[i].strip().strip('|').split('|')]
+                rows.append(row)
+                i += 1
+            blocks.append({'type': 'table', 'headers': headers, 'rows': rows})
+            continue
+
+        # Bullet list
+        if re.match(r'^[\s]*[-*+]\s+', line):
+            items = []
+            while i < len(lines) and re.match(r'^[\s]*[-*+]\s+', lines[i]):
+                item_text = re.sub(r'^[\s]*[-*+]\s+', '', lines[i])
+                indent = len(lines[i]) - len(lines[i].lstrip())
+                level = min(indent // 2, 2)
+                items.append({'text': item_text, 'level': level})
+                i += 1
+            blocks.append({'type': 'bullet_list', 'items': items})
+            continue
+
+        # Numbered list
+        if re.match(r'^[\s]*\d+[.)]\s+', line):
+            items = []
+            while i < len(lines) and re.match(r'^[\s]*\d+[.)]\s+', lines[i]):
+                item_text = re.sub(r'^[\s]*\d+[.)]\s+', '', lines[i])
+                indent = len(lines[i]) - len(lines[i].lstrip())
+                level = min(indent // 2, 2)
+                items.append({'text': item_text, 'level': level})
+                i += 1
+            blocks.append({'type': 'numbered_list', 'items': items})
+            continue
+
+        # Paragraph (non-empty line)
+        if line.strip():
+            para_lines = []
+            while i < len(lines) and lines[i].strip() and not re.match(r'^#{1,4}\s+', lines[i]) and not re.match(r'^[-*_]{3,}\s*$', lines[i].strip()) and not re.match(r'^[\s]*[-*+]\s+', lines[i]) and not re.match(r'^[\s]*\d+[.)]\s+', lines[i]) and not lines[i].strip().startswith('```') and not ('|' in lines[i] and i + 1 < len(lines) and re.match(r'^[\s|:-]+$', lines[i + 1])):
+                para_lines.append(lines[i])
+                i += 1
+            blocks.append({'type': 'paragraph', 'text': ' '.join(para_lines)})
+            continue
+
+        i += 1
+
+    return blocks
 
 
-CREATE_DOCX_DEFINITION = ToolDefinition(
-    name="create_docx",
-    description="Create a DOCX file with improved layout, structure, and diagrams. Supports custom title, introduction, and additional content.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "filename": {
-                "type": "string",
-                "description": "The path and filename for the DOCX file to create."
-            },
-            "title": {
-                "type": "string",
-                "description": "The title to display at the top of the document."
-            },
-            "introduction": {
-                "type": "string",
-                "description": "The introduction text to include in the document."
-            },
-            "content": {
-                "type": "string",
-                "description": "Additional content to include in the document."
-            }
-        },
-        "required": ["filename"]
-    },
-    function=lambda args: create_docx(
-        args.get('filename'),
-        args.get('title', "AI Agent Project Report"),
-        args.get('introduction', "The AI Agent is a dynamic system built with Django framework, integrating advanced AI capabilities."),
-        args.get('content', "")
-    )
-)
+def _md_inline_to_html(text):
+    """Convert markdown inline formatting to HTML for reportlab Paragraph."""
+    text = re.sub(r'\*\*\*(.+?)\*\*\*', r'<b><i>\1</i></b>', text)
+    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
+    text = re.sub(r'\*(.+?)\*', r'<i>\1</i>', text)
+    text = re.sub(r'`(.+?)`', r'<font face="Courier" size="9">\1</font>', text)
+    return text
 
 
-CREATE_EXCEL_DEFINITION = ToolDefinition(
-    name="create_excel",
-    description="Create an XLSX file with improved layout, structure, and diagrams. Supports custom title and data.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "filename": {
-                "type": "string",
-                "description": "The path and filename for the XLSX file to create."
-            },
-            "title": {
-                "type": "string",
-                "description": "The title to display at the top of the spreadsheet."
-            },
-            "data": {
-                "type": "array",
-                "items": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "description": "Array of arrays representing rows of data to include in the spreadsheet."
-            }
-        },
-        "required": ["filename"]
-    },
-    function=lambda args: create_excel(
-        args.get('filename'),
-        args.get('title', "AI Agent Project Report"),
-        args.get('data')
-    )
-)
+# ─── Document Creation Functions ─────────────────────────────────────
 
-
-CREATE_PPTX_DEFINITION = ToolDefinition(
-    name="create_pptx",
-    description="Create a PPTX file with improved layout, structure, and diagrams. Supports custom title and subtitle.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "filename": {
-                "type": "string",
-                "description": "The path and filename for the PPTX file to create."
-            },
-            "title": {
-                "type": "string",
-                "description": "The title for the presentation."
-            },
-            "subtitle": {
-                "type": "string",
-                "description": "The subtitle for the presentation."
-            }
-        },
-        "required": ["filename"]
-    },
-    function=lambda args: create_pptx(
-        args.get('filename'),
-        args.get('title', "AI Agent Project"),
-        args.get('subtitle', "Integration of advanced AI capabilities with Django")
-    )
-)
-
-
-def create_pdf(filename: str, title: str = "AI Agent Project Report", introduction: str = "The AI Agent is a dynamic system built with Django framework, integrating advanced AI capabilities.", content: str = "") -> str:
-    """Create a PDF file with improved layout, structure, and diagrams."""
+def create_pdf(filename: str, content: str = "") -> str:
+    """Create a professionally styled PDF from markdown content."""
     try:
-        c = canvas.Canvas(filename, pagesize=letter)
-        width, height = letter
+        if not content.strip():
+            return "Error: content is required to create a PDF."
 
-        # Title
-        c.setFont("Helvetica-Bold", 16)
-        c.drawCentredString(width / 2, height - 50, title)
+        doc = SimpleDocTemplate(
+            filename, pagesize=letter,
+            leftMargin=0.75 * inch, rightMargin=0.75 * inch,
+            topMargin=0.75 * inch, bottomMargin=0.75 * inch
+        )
 
-        # Introduction
-        c.setFont("Helvetica", 12)
-        y_position = height - 100
-        for line in introduction.split('\n'):
-            c.drawString(50, y_position, line)
-            y_position -= 15
+        styles = getSampleStyleSheet()
+        # Custom styles
+        styles.add(ParagraphStyle(
+            'DocTitle', parent=styles['Title'],
+            fontSize=24, textColor=rl_colors.HexColor('#1a237e'),
+            spaceAfter=20, alignment=TA_CENTER
+        ))
+        styles.add(ParagraphStyle(
+            'H1', parent=styles['Heading1'],
+            fontSize=18, textColor=rl_colors.HexColor('#1a237e'),
+            spaceBefore=18, spaceAfter=10, borderWidth=1,
+            borderColor=rl_colors.HexColor('#1a237e'), borderPadding=4
+        ))
+        styles.add(ParagraphStyle(
+            'H2', parent=styles['Heading2'],
+            fontSize=15, textColor=rl_colors.HexColor('#283593'),
+            spaceBefore=14, spaceAfter=8
+        ))
+        styles.add(ParagraphStyle(
+            'H3', parent=styles['Heading3'],
+            fontSize=12, textColor=rl_colors.HexColor('#3949ab'),
+            spaceBefore=10, spaceAfter=6
+        ))
+        styles.add(ParagraphStyle(
+            'BodyCustom', parent=styles['Normal'],
+            fontSize=10.5, leading=15, spaceAfter=8
+        ))
+        styles.add(ParagraphStyle(
+            'CodeBlock', parent=styles['Normal'],
+            fontName='Courier', fontSize=9, leading=12,
+            backColor=rl_colors.HexColor('#f5f5f5'),
+            borderWidth=0.5, borderColor=rl_colors.HexColor('#e0e0e0'),
+            borderPadding=8, spaceAfter=10, spaceBefore=6
+        ))
+        styles.add(ParagraphStyle(
+            'BulletItem', parent=styles['Normal'],
+            fontSize=10.5, leading=15, leftIndent=20, spaceAfter=3,
+            bulletIndent=8, bulletFontSize=10
+        ))
+        styles.add(ParagraphStyle(
+            'SubBulletItem', parent=styles['Normal'],
+            fontSize=10, leading=14, leftIndent=40, spaceAfter=2,
+            bulletIndent=28, bulletFontSize=9
+        ))
 
-        # Additional content
-        if content:
-            c.setFont("Helvetica", 10)
-            y_position -= 20
-            for line in content.split('\n'):
-                if y_position < 50:
-                    c.showPage()
-                    y_position = height - 50
-                c.drawString(50, y_position, line)
-                y_position -= 12
+        flowables = []
+        blocks = _parse_markdown_blocks(content)
 
-        # Simple diagram (rectangle)
-        c.setStrokeColorRGB(0, 0, 1)
-        c.rect(50, 100, 200, 100)
-        c.drawString(60, 180, "AI Agent Architecture")
-        c.drawString(60, 160, "- Django Backend")
-        c.drawString(60, 140, "- OpenAI Integration")
-        c.drawString(60, 120, "- File Processing")
+        for idx, block in enumerate(blocks):
+            btype = block['type']
 
-        c.save()
+            if btype == 'heading':
+                level = block['level']
+                text = _md_inline_to_html(block['text'])
+                if level == 1 and idx == 0:
+                    flowables.append(Paragraph(text, styles['DocTitle']))
+                    flowables.append(HRFlowable(width="100%", thickness=2, color=rl_colors.HexColor('#1a237e'), spaceAfter=12))
+                elif level == 1:
+                    flowables.append(Spacer(1, 6))
+                    flowables.append(Paragraph(text, styles['H1']))
+                elif level == 2:
+                    flowables.append(Paragraph(text, styles['H2']))
+                else:
+                    flowables.append(Paragraph(text, styles['H3']))
+
+            elif btype == 'paragraph':
+                text = _md_inline_to_html(block['text'])
+                flowables.append(Paragraph(text, styles['BodyCustom']))
+
+            elif btype == 'bullet_list':
+                for item in block['items']:
+                    text = _md_inline_to_html(item['text'])
+                    style = styles['SubBulletItem'] if item.get('level', 0) > 0 else styles['BulletItem']
+                    bullet = '\u2022'
+                    if item.get('level', 0) > 0:
+                        bullet = '\u25e6'
+                    flowables.append(Paragraph(f'{bullet}  {text}', style))
+
+            elif btype == 'numbered_list':
+                for num, item in enumerate(block['items'], 1):
+                    text = _md_inline_to_html(item['text'])
+                    style = styles['BulletItem']
+                    flowables.append(Paragraph(f'{num}.  {text}', style))
+
+            elif btype == 'table':
+                headers = block['headers']
+                rows = block['rows']
+                table_data = [headers] + rows
+                col_count = len(headers)
+                avail_width = letter[0] - 1.5 * inch
+                col_width = avail_width / max(col_count, 1)
+
+                t = Table(table_data, colWidths=[col_width] * col_count)
+                style_cmds = [
+                    ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#1a237e')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.white),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 10),
+                    ('FONTSIZE', (0, 1), (-1, -1), 9.5),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('GRID', (0, 0), (-1, -1), 0.5, rl_colors.HexColor('#bdbdbd')),
+                    ('TOPPADDING', (0, 0), (-1, -1), 6),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 8),
+                ]
+                for row_idx in range(1, len(table_data)):
+                    if row_idx % 2 == 0:
+                        style_cmds.append(('BACKGROUND', (0, row_idx), (-1, row_idx), rl_colors.HexColor('#f5f5f5')))
+                t.setStyle(TableStyle(style_cmds))
+                flowables.append(Spacer(1, 6))
+                flowables.append(t)
+                flowables.append(Spacer(1, 8))
+
+            elif btype == 'code':
+                code_text = block['text'].replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br/>')
+                flowables.append(Paragraph(code_text, styles['CodeBlock']))
+
+            elif btype == 'hr':
+                flowables.append(Spacer(1, 4))
+                flowables.append(HRFlowable(width="100%", thickness=1, color=rl_colors.HexColor('#bdbdbd'), spaceAfter=8))
+
+        if not flowables:
+            return "Error: No content blocks parsed from the provided markdown."
+
+        doc.build(flowables)
         return f"Successfully created PDF: {filename}"
     except Exception as e:
         return f"Error creating PDF: {str(e)}"
 
 
-def create_docx(filename: str, title: str = "AI Agent Project Report", introduction: str = "The AI Agent is a dynamic system built with Django framework, integrating advanced AI capabilities.", content: str = "") -> str:
-    """Create a DOCX file with improved layout, structure, and diagrams."""
+def create_docx(filename: str, content: str = "") -> str:
+    """Create a professionally styled DOCX from markdown content."""
     try:
+        if not content.strip():
+            return "Error: content is required to create a DOCX."
+
         doc = Document()
-        doc.add_heading(title, 0)
 
-        doc.add_heading('Introduction', level=1)
-        doc.add_paragraph(introduction)
+        # Set default font
+        style = doc.styles['Normal']
+        font = style.font
+        font.name = 'Calibri'
+        font.size = Pt(11)
 
-        if content:
-            doc.add_heading('Details', level=1)
-            doc.add_paragraph(content)
+        blocks = _parse_markdown_blocks(content)
 
-        # Add a table
-        table = doc.add_table(rows=1, cols=2)
-        hdr_cells = table.rows[0].cells
-        hdr_cells[0].text = 'Component'
-        hdr_cells[1].text = 'Description'
-        row_cells = table.add_row().cells
-        row_cells[0].text = 'Django Framework'
-        row_cells[1].text = 'Backend for web application'
-        row_cells = table.add_row().cells
-        row_cells[0].text = 'OpenAI API'
-        row_cells[1].text = 'AI capabilities integration'
+        def _add_formatted_paragraph(doc_obj, text, style_name='Normal', bold=False, italic=False):
+            """Add a paragraph with inline markdown formatting (bold/italic)."""
+            p = doc_obj.add_paragraph(style=style_name)
+            # Split by bold and italic markers
+            parts = re.split(r'(\*\*\*.+?\*\*\*|\*\*.+?\*\*|\*.+?\*|`.+?`)', text)
+            for part in parts:
+                if part.startswith('***') and part.endswith('***'):
+                    run = p.add_run(part[3:-3])
+                    run.bold = True
+                    run.italic = True
+                elif part.startswith('**') and part.endswith('**'):
+                    run = p.add_run(part[2:-2])
+                    run.bold = True
+                elif part.startswith('*') and part.endswith('*') and len(part) > 2:
+                    run = p.add_run(part[1:-1])
+                    run.italic = True
+                elif part.startswith('`') and part.endswith('`'):
+                    run = p.add_run(part[1:-1])
+                    run.font.name = 'Consolas'
+                    run.font.size = Pt(9.5)
+                    run.font.color.rgb = RGBColor(0x4a, 0x14, 0x8c)
+                else:
+                    run = p.add_run(part)
+                if bold:
+                    run.bold = True
+                if italic:
+                    run.italic = True
+            return p
+
+        for idx, block in enumerate(blocks):
+            btype = block['type']
+
+            if btype == 'heading':
+                level = block['level']
+                h = doc.add_heading(block['text'], level=min(level, 4))
+                if level <= 2:
+                    for run in h.runs:
+                        run.font.color.rgb = RGBColor(0x1a, 0x23, 0x7e)
+
+            elif btype == 'paragraph':
+                _add_formatted_paragraph(doc, block['text'])
+
+            elif btype == 'bullet_list':
+                for item in block['items']:
+                    level = item.get('level', 0)
+                    style_name = 'List Bullet' if level == 0 else 'List Bullet 2'
+                    try:
+                        _add_formatted_paragraph(doc, item['text'], style_name)
+                    except KeyError:
+                        p = _add_formatted_paragraph(doc, item['text'])
+                        fmt = p.paragraph_format
+                        fmt.left_indent = Inches(0.25 + level * 0.25)
+
+            elif btype == 'numbered_list':
+                for item in block['items']:
+                    level = item.get('level', 0)
+                    style_name = 'List Number' if level == 0 else 'List Number 2'
+                    try:
+                        _add_formatted_paragraph(doc, item['text'], style_name)
+                    except KeyError:
+                        p = _add_formatted_paragraph(doc, item['text'])
+                        fmt = p.paragraph_format
+                        fmt.left_indent = Inches(0.25 + level * 0.25)
+
+            elif btype == 'table':
+                headers = block['headers']
+                rows = block['rows']
+                col_count = len(headers)
+                table = doc.add_table(rows=1 + len(rows), cols=col_count, style='Table Grid')
+                # Header row
+                for ci, header in enumerate(headers):
+                    cell = table.rows[0].cells[ci]
+                    cell.text = header
+                    for paragraph in cell.paragraphs:
+                        for run in paragraph.runs:
+                            run.bold = True
+                            run.font.color.rgb = RGBColor(0xff, 0xff, 0xff)
+                            run.font.size = Pt(10)
+                    shading = cell._element.get_or_add_tcPr()
+                    bg = shading.makeelement(qn('w:shd'), {
+                        qn('w:fill'): '1a237e', qn('w:val'): 'clear'
+                    })
+                    shading.append(bg)
+                # Data rows
+                for ri, row in enumerate(rows):
+                    for ci, val in enumerate(row):
+                        if ci < col_count:
+                            table.rows[1 + ri].cells[ci].text = val
+                doc.add_paragraph()  # spacing after table
+
+            elif btype == 'code':
+                p = doc.add_paragraph()
+                run = p.add_run(block['text'])
+                run.font.name = 'Consolas'
+                run.font.size = Pt(9)
+                fmt = p.paragraph_format
+                fmt.left_indent = Inches(0.3)
+                fmt.space_before = Pt(6)
+                fmt.space_after = Pt(6)
+                # Gray background via shading XML
+                pPr = p._element.get_or_add_pPr()
+                shd = pPr.makeelement(qn('w:shd'), {
+                    qn('w:fill'): 'f5f5f5', qn('w:val'): 'clear'
+                })
+                pPr.append(shd)
+
+            elif btype == 'hr':
+                p = doc.add_paragraph()
+                p.paragraph_format.space_before = Pt(4)
+                p.paragraph_format.space_after = Pt(4)
+                pPr = p._element.get_or_add_pPr()
+                pBdr = pPr.makeelement(qn('w:pBdr'), {})
+                bottom = pBdr.makeelement(qn('w:bottom'), {
+                    qn('w:val'): 'single', qn('w:sz'): '6',
+                    qn('w:space'): '1', qn('w:color'): 'bdbdbd'
+                })
+                pBdr.append(bottom)
+                pPr.append(pBdr)
 
         doc.save(filename)
         return f"Successfully created DOCX: {filename}"
@@ -2717,35 +2905,81 @@ def create_docx(filename: str, title: str = "AI Agent Project Report", introduct
         return f"Error creating DOCX: {str(e)}"
 
 
-def create_excel(filename: str, title: str = "AI Agent Project Report", data: List[List[str]] = None) -> str:
-    """Create an XLSX file with improved layout, structure, and diagrams."""
+def create_excel(filename: str, content: str = "", data: list = None, title: str = "") -> str:
+    """Create a professionally styled XLSX from content or data."""
     try:
         wb = Workbook()
         ws = wb.active
-        ws.title = "Report"
+        ws.title = "Sheet1"
 
-        # Title
-        ws['A1'] = title
-        ws['A1'].font = ws['A1'].font.copy(bold=True, size=14)
+        # Style definitions
+        header_font = XlFont(name='Calibri', bold=True, color='FFFFFF', size=11)
+        header_fill = PatternFill(start_color='1a237e', end_color='1a237e', fill_type='solid')
+        alt_fill = PatternFill(start_color='f5f5f5', end_color='f5f5f5', fill_type='solid')
+        title_font = XlFont(name='Calibri', bold=True, size=14, color='1a237e')
+        thin_border = Border(
+            left=Side(style='thin', color='bdbdbd'),
+            right=Side(style='thin', color='bdbdbd'),
+            top=Side(style='thin', color='bdbdbd'),
+            bottom=Side(style='thin', color='bdbdbd')
+        )
+        cell_alignment = XlAlignment(vertical='center', wrap_text=True)
 
-        # Default data if not provided
-        if not data:
-            data = [
-                ["Section", "Description"],
-                ["Introduction", "The AI Agent integrates advanced AI capabilities with Django."],
-                ["Features", "File creation, tool execution, AI chat"],
-                ["Technologies", "Python, Django, OpenAI, ReportLab"]
-            ]
+        # Determine data source
+        table_data = None
+        if data:
+            table_data = data
+        elif content.strip():
+            # Try to extract a markdown table from content
+            blocks = _parse_markdown_blocks(content)
+            for block in blocks:
+                if block['type'] == 'table':
+                    table_data = [block['headers']] + block['rows']
+                    break
+            # If no table found, try to split content into rows
+            if not table_data:
+                lines = [l.strip() for l in content.strip().split('\n') if l.strip()]
+                if lines:
+                    table_data = []
+                    for l in lines:
+                        if ',' in l or '\t' in l:
+                            sep = '\t' if '\t' in l else ','
+                            table_data.append([c.strip() for c in l.split(sep)])
+                        else:
+                            table_data.append([l])
 
-        for row in data:
-            ws.append(row)
+        if not table_data:
+            return "Error: No data provided. Pass either 'content' with a markdown table or 'data' as an array of arrays."
 
-        # Add some formatting
-        from openpyxl.styles import Border, Side
-        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
-        for row in ws.iter_rows():
-            for cell in row:
+        start_row = 1
+        # Add title if provided
+        if title:
+            ws.cell(row=1, column=1, value=title).font = title_font
+            col_count = max(len(row) for row in table_data)
+            if col_count > 1:
+                ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=col_count)
+            start_row = 3
+
+        # Write data
+        for ri, row in enumerate(table_data):
+            for ci, val in enumerate(row):
+                cell = ws.cell(row=start_row + ri, column=ci + 1, value=val)
                 cell.border = thin_border
+                cell.alignment = cell_alignment
+                if ri == 0:
+                    cell.font = header_font
+                    cell.fill = header_fill
+                elif ri % 2 == 0:
+                    cell.fill = alt_fill
+
+        # Auto-fit column widths
+        for ci in range(1, max(len(row) for row in table_data) + 1):
+            max_len = 0
+            col_letter = get_column_letter(ci)
+            for ri in range(len(table_data)):
+                cell_val = str(table_data[ri][ci - 1]) if ci - 1 < len(table_data[ri]) else ''
+                max_len = max(max_len, len(cell_val))
+            ws.column_dimensions[col_letter].width = min(max(max_len + 4, 10), 50)
 
         wb.save(filename)
         return f"Successfully created XLSX: {filename}"
@@ -2753,48 +2987,797 @@ def create_excel(filename: str, title: str = "AI Agent Project Report", data: Li
         return f"Error creating XLSX: {str(e)}"
 
 
-def create_pptx(filename: str, title: str = "AI Agent Project", subtitle: str = "Integration of advanced AI capabilities with Django") -> str:
-    """Create a PPTX file with improved layout, structure, and diagrams."""
+def create_pptx(filename: str, content: str = "") -> str:
+    """Create a professionally styled PPTX from markdown content.
+    Each heading (# or ##) becomes a new slide title, with content below as bullets."""
     try:
+        if not content.strip():
+            return "Error: content is required to create a PPTX."
+
         prs = Presentation()
+        prs.slide_width = PptxInches(13.333)
+        prs.slide_height = PptxInches(7.5)
 
-        # Title slide
-        slide_layout = prs.slide_layouts[0]
-        slide = prs.slides.add_slide(slide_layout)
-        title_placeholder = slide.shapes.title
-        subtitle_placeholder = slide.placeholders[1]
-        title_placeholder.text = title
-        subtitle_placeholder.text = subtitle
+        blocks = _parse_markdown_blocks(content)
 
-        # Content slide
-        slide_layout = prs.slide_layouts[1]
-        slide = prs.slides.add_slide(slide_layout)
-        shapes = slide.shapes
-        title_shape = shapes.title
-        body_shape = shapes.placeholders[1]
-        title_shape.text = 'Key Features'
-        tf = body_shape.text_frame
-        tf.text = 'Advanced AI Integration'
-        p = tf.add_paragraph()
-        p.text = 'Django Backend'
-        p.level = 1
-        p = tf.add_paragraph()
-        p.text = 'File Processing Tools'
-        p.level = 1
+        # Group blocks into slides: each H1/H2 starts a new slide
+        slides_data = []
+        current_slide = None
 
-        # Diagram slide (simple shapes)
-        slide_layout = prs.slide_layouts[5]  # Blank slide
-        slide = prs.slides.add_slide(slide_layout)
-        shapes = slide.shapes
-        shapes.title.text = 'Architecture Diagram'
-        left = top = width = height = 1.5 * 914400  # Inches to EMU
-        shape = shapes.add_shape(1, left, top, width, height)  # Rectangle
-        shape.text = 'AI Agent System'
+        for block in blocks:
+            if block['type'] == 'heading' and block['level'] <= 2:
+                if current_slide is not None:
+                    slides_data.append(current_slide)
+                current_slide = {'title': block['text'], 'blocks': [], 'is_title_slide': (block['level'] == 1 and len(slides_data) == 0)}
+            else:
+                if current_slide is None:
+                    current_slide = {'title': '', 'blocks': [], 'is_title_slide': True}
+                current_slide['blocks'].append(block)
+
+        if current_slide is not None:
+            slides_data.append(current_slide)
+
+        if not slides_data:
+            return "Error: No slides could be generated from the content."
+
+        navy = PptxRGBColor(0x1a, 0x23, 0x7e)
+        white = PptxRGBColor(0xff, 0xff, 0xff)
+        dark_gray = PptxRGBColor(0x33, 0x33, 0x33)
+        light_blue = PptxRGBColor(0x3f, 0x51, 0xb5)
+
+        for si, sd in enumerate(slides_data):
+            slide_layout = prs.slide_layouts[6]  # Blank layout for full control
+            slide = prs.slides.add_slide(slide_layout)
+
+            if sd.get('is_title_slide'):
+                # Title slide with dark background
+                bg = slide.background
+                fill = bg.fill
+                fill.solid()
+                fill.fore_color.rgb = navy
+
+                # Title text box
+                txBox = slide.shapes.add_textbox(
+                    PptxInches(1), PptxInches(2.2), PptxInches(11.333), PptxInches(1.5)
+                )
+                tf = txBox.text_frame
+                tf.word_wrap = True
+                p = tf.paragraphs[0]
+                p.text = sd['title']
+                p.font.size = PptxPt(40)
+                p.font.bold = True
+                p.font.color.rgb = white
+                p.alignment = PP_ALIGN.CENTER
+
+                # Subtitle from first paragraph block
+                if sd['blocks']:
+                    first_block = sd['blocks'][0]
+                    if first_block['type'] == 'paragraph':
+                        subBox = slide.shapes.add_textbox(
+                            PptxInches(2), PptxInches(4), PptxInches(9.333), PptxInches(1)
+                        )
+                        stf = subBox.text_frame
+                        stf.word_wrap = True
+                        sp = stf.paragraphs[0]
+                        sp.text = re.sub(r'\*+', '', first_block['text'])
+                        sp.font.size = PptxPt(20)
+                        sp.font.color.rgb = PptxRGBColor(0xbb, 0xbb, 0xff)
+                        sp.alignment = PP_ALIGN.CENTER
+            else:
+                # Content slide
+                # Title bar area
+                title_shape = slide.shapes.add_textbox(
+                    PptxInches(0.5), PptxInches(0.3), PptxInches(12), PptxInches(0.9)
+                )
+                tf = title_shape.text_frame
+                tf.word_wrap = True
+                p = tf.paragraphs[0]
+                p.text = sd['title']
+                p.font.size = PptxPt(28)
+                p.font.bold = True
+                p.font.color.rgb = navy
+
+                # Underline
+                line_shape = slide.shapes.add_shape(
+                    1, PptxInches(0.5), PptxInches(1.15), PptxInches(12), Emu(0)
+                )
+                line_shape.line.color.rgb = light_blue
+                line_shape.line.width = PptxPt(2)
+
+                # Content area
+                content_box = slide.shapes.add_textbox(
+                    PptxInches(0.8), PptxInches(1.5), PptxInches(11.5), PptxInches(5.5)
+                )
+                ctf = content_box.text_frame
+                ctf.word_wrap = True
+
+                first_para = True
+                for block in sd['blocks']:
+                    if block['type'] == 'paragraph':
+                        if first_para:
+                            p = ctf.paragraphs[0]
+                            first_para = False
+                        else:
+                            p = ctf.add_paragraph()
+                        p.text = re.sub(r'\*+', '', block['text'])
+                        p.font.size = PptxPt(16)
+                        p.font.color.rgb = dark_gray
+                        p.space_after = PptxPt(8)
+
+                    elif block['type'] in ('bullet_list', 'numbered_list'):
+                        for bi, item in enumerate(block['items']):
+                            if first_para:
+                                p = ctf.paragraphs[0]
+                                first_para = False
+                            else:
+                                p = ctf.add_paragraph()
+                            clean_text = re.sub(r'\*+', '', item['text'])
+                            level = item.get('level', 0)
+                            prefix = '\u2022 ' if block['type'] == 'bullet_list' else f'{bi + 1}. '
+                            if level > 0:
+                                prefix = '   \u25e6 ' if block['type'] == 'bullet_list' else f'   {bi + 1}. '
+                            p.text = prefix + clean_text
+                            p.font.size = PptxPt(15 if level == 0 else 13)
+                            p.font.color.rgb = dark_gray
+                            p.space_after = PptxPt(4)
+                            p.level = level
+
+                    elif block['type'] == 'heading':
+                        if first_para:
+                            p = ctf.paragraphs[0]
+                            first_para = False
+                        else:
+                            p = ctf.add_paragraph()
+                        p.text = block['text']
+                        p.font.size = PptxPt(20)
+                        p.font.bold = True
+                        p.font.color.rgb = light_blue
+                        p.space_before = PptxPt(12)
+                        p.space_after = PptxPt(6)
 
         prs.save(filename)
         return f"Successfully created PPTX: {filename}"
     except Exception as e:
         return f"Error creating PPTX: {str(e)}"
+
+
+# ─── Document Creation Tool Definitions ──────────────────────────────
+
+CREATE_PDF_DEFINITION = ToolDefinition(
+    name="create_pdf",
+    description=(
+        "Create a professionally styled PDF document from markdown content. "
+        "You MUST generate the COMPLETE document content in markdown format and pass it as the 'content' parameter. "
+        "Use full markdown: # headings, ## subheadings, **bold**, *italic*, bullet lists (- item), "
+        "numbered lists (1. item), tables (| col1 | col2 |), code blocks (```), and --- for horizontal rules. "
+        "Write thorough, detailed content - the more content you provide, the better the document."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "filename": {
+                "type": "string",
+                "description": "The path and filename for the PDF (e.g. 'report.pdf')."
+            },
+            "content": {
+                "type": "string",
+                "description": "The FULL document content in markdown format. Include headings, paragraphs, lists, tables, etc."
+            }
+        },
+        "required": ["filename", "content"]
+    },
+    function=lambda args: create_pdf(args.get('filename'), args.get('content', ''))
+)
+
+CREATE_DOCX_DEFINITION = ToolDefinition(
+    name="create_docx",
+    description=(
+        "Create a professionally styled Word document (DOCX) from markdown content. "
+        "You MUST generate the COMPLETE document content in markdown format and pass it as the 'content' parameter. "
+        "Use full markdown: # headings, ## subheadings, **bold**, *italic*, bullet lists (- item), "
+        "numbered lists (1. item), tables (| col1 | col2 |), code blocks (```), and --- for horizontal rules. "
+        "Write thorough, detailed content - the more content you provide, the better the document."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "filename": {
+                "type": "string",
+                "description": "The path and filename for the DOCX (e.g. 'report.docx')."
+            },
+            "content": {
+                "type": "string",
+                "description": "The FULL document content in markdown format. Include headings, paragraphs, lists, tables, etc."
+            }
+        },
+        "required": ["filename", "content"]
+    },
+    function=lambda args: create_docx(args.get('filename'), args.get('content', ''))
+)
+
+CREATE_EXCEL_DEFINITION = ToolDefinition(
+    name="create_excel",
+    description=(
+        "Create a professionally styled Excel spreadsheet (XLSX). Provide data either as a markdown table in 'content' "
+        "or as an array of arrays in 'data'. The first row is treated as the header row with special styling. "
+        "Include an optional 'title' for a merged title row above the data."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "filename": {
+                "type": "string",
+                "description": "The path and filename for the XLSX (e.g. 'data.xlsx')."
+            },
+            "content": {
+                "type": "string",
+                "description": "A markdown table to convert into the spreadsheet. e.g. '| Name | Age |\\n|---|---|\\n| Alice | 30 |'"
+            },
+            "data": {
+                "type": "array",
+                "items": {"type": "array", "items": {"type": "string"}},
+                "description": "Array of arrays representing rows. First row is headers. e.g. [['Name','Age'],['Alice','30']]"
+            },
+            "title": {
+                "type": "string",
+                "description": "Optional title displayed as a merged row above the data."
+            }
+        },
+        "required": ["filename"]
+    },
+    function=lambda args: create_excel(args.get('filename'), args.get('content', ''), args.get('data'), args.get('title', ''))
+)
+
+CREATE_PPTX_DEFINITION = ToolDefinition(
+    name="create_pptx",
+    description=(
+        "Create a professionally styled PowerPoint presentation (PPTX) from markdown content. "
+        "You MUST generate the COMPLETE presentation content in markdown format. "
+        "Each # or ## heading starts a NEW SLIDE with that heading as the slide title. "
+        "The first # heading becomes the title slide. Content under each heading becomes bullet points on that slide. "
+        "Use bullet lists (- item), numbered lists (1. item), and paragraphs for slide content. "
+        "Write concise but informative bullet points for each slide."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "filename": {
+                "type": "string",
+                "description": "The path and filename for the PPTX (e.g. 'presentation.pptx')."
+            },
+            "content": {
+                "type": "string",
+                "description": "The FULL presentation content in markdown format. Each # or ## heading starts a new slide."
+            }
+        },
+        "required": ["filename", "content"]
+    },
+    function=lambda args: create_pptx(args.get('filename'), args.get('content', ''))
+)
+
+
+# ─── Document Read/Edit Functions ────────────────────────────────────
+
+def read_pdf_tool(args: Dict[str, Any]) -> str:
+    """Read the text content of a PDF file."""
+    path = args.get('path', '')
+    if not path:
+        return "Error: No path provided."
+
+    actual_path = path
+    if not os.path.exists(path):
+        found = find_file_broadly(path)
+        if found:
+            actual_path = found
+        else:
+            return f"Error: File '{path}' not found."
+
+    try:
+        import fitz  # PyMuPDF
+        doc = fitz.open(actual_path)
+        pages = []
+        for i, page in enumerate(doc):
+            text = page.get_text()
+            if text.strip():
+                pages.append(f"--- Page {i + 1} ---\n{text.strip()}")
+        doc.close()
+
+        if not pages:
+            return f"The PDF '{actual_path}' contains no extractable text (may be image-based)."
+
+        result = f"Content of {actual_path} ({len(pages)} page(s)):\n\n" + "\n\n".join(pages)
+        if len(result) > 15000:
+            result = result[:15000] + "\n\n[... Output truncated. Use a page range for large PDFs ...]"
+        return result
+    except ImportError:
+        # Fallback to pdfplumber if PyMuPDF not available
+        try:
+            import pdfplumber
+            pages = []
+            with pdfplumber.open(actual_path) as pdf:
+                for i, page in enumerate(pdf.pages):
+                    text = page.extract_text()
+                    if text and text.strip():
+                        pages.append(f"--- Page {i + 1} ---\n{text.strip()}")
+            if not pages:
+                return f"The PDF '{actual_path}' contains no extractable text."
+            result = f"Content of {actual_path} ({len(pages)} page(s)):\n\n" + "\n\n".join(pages)
+            if len(result) > 15000:
+                result = result[:15000] + "\n\n[... Output truncated ...]"
+            return result
+        except ImportError:
+            return "Error: Neither PyMuPDF (fitz) nor pdfplumber is installed. Install one with: pip install PyMuPDF or pip install pdfplumber"
+    except Exception as e:
+        return f"Error reading PDF: {str(e)}"
+
+
+def read_docx_tool(args: Dict[str, Any]) -> str:
+    """Read the text content of a DOCX file including paragraphs and tables."""
+    path = args.get('path', '')
+    if not path:
+        return "Error: No path provided."
+
+    actual_path = path
+    if not os.path.exists(path):
+        found = find_file_broadly(path)
+        if found:
+            actual_path = found
+        else:
+            return f"Error: File '{path}' not found."
+
+    try:
+        doc = Document(actual_path)
+        parts = []
+
+        for element in doc.element.body:
+            tag = element.tag.split('}')[-1] if '}' in element.tag else element.tag
+
+            if tag == 'p':
+                # Paragraph
+                para = None
+                for p in doc.paragraphs:
+                    if p._element is element:
+                        para = p
+                        break
+                if para and para.text.strip():
+                    style_name = para.style.name if para.style else ''
+                    if 'Heading' in style_name:
+                        level = ''.join(c for c in style_name if c.isdigit()) or '1'
+                        parts.append(f"{'#' * int(level)} {para.text}")
+                    elif 'List' in style_name:
+                        parts.append(f"- {para.text}")
+                    else:
+                        parts.append(para.text)
+
+            elif tag == 'tbl':
+                # Table
+                for table in doc.tables:
+                    if table._element is element:
+                        rows = []
+                        for ri, row in enumerate(table.rows):
+                            cells = [cell.text.strip() for cell in row.cells]
+                            rows.append("| " + " | ".join(cells) + " |")
+                            if ri == 0:
+                                rows.append("| " + " | ".join(["---"] * len(cells)) + " |")
+                        parts.append("\n".join(rows))
+                        break
+
+        if not parts:
+            return f"The DOCX '{actual_path}' appears to be empty."
+
+        result = f"Content of {actual_path}:\n\n" + "\n\n".join(parts)
+        if len(result) > 15000:
+            result = result[:15000] + "\n\n[... Output truncated ...]"
+        return result
+    except Exception as e:
+        return f"Error reading DOCX: {str(e)}"
+
+
+def read_excel_tool(args: Dict[str, Any]) -> str:
+    """Read the content of an XLSX file, returning data as markdown tables."""
+    path = args.get('path', '')
+    sheet_name = args.get('sheet_name', '')
+    if not path:
+        return "Error: No path provided."
+
+    actual_path = path
+    if not os.path.exists(path):
+        found = find_file_broadly(path)
+        if found:
+            actual_path = found
+        else:
+            return f"Error: File '{path}' not found."
+
+    try:
+        wb = Workbook()
+        wb.close()
+        from openpyxl import load_workbook
+        wb = load_workbook(actual_path, read_only=True, data_only=True)
+
+        sheets_to_read = []
+        if sheet_name:
+            if sheet_name in wb.sheetnames:
+                sheets_to_read = [sheet_name]
+            else:
+                wb.close()
+                return f"Error: Sheet '{sheet_name}' not found. Available sheets: {', '.join(wb.sheetnames)}"
+        else:
+            sheets_to_read = wb.sheetnames
+
+        parts = []
+        for sn in sheets_to_read:
+            ws = wb[sn]
+            rows = []
+            for row in ws.iter_rows(values_only=True):
+                row_vals = [str(c) if c is not None else "" for c in row]
+                if any(v.strip() for v in row_vals):
+                    rows.append(row_vals)
+
+            if not rows:
+                parts.append(f"### Sheet: {sn}\n(empty)")
+                continue
+
+            # Format as markdown table
+            col_count = max(len(r) for r in rows)
+            # Pad rows to same length
+            for r in rows:
+                while len(r) < col_count:
+                    r.append("")
+
+            md_lines = []
+            md_lines.append("| " + " | ".join(rows[0]) + " |")
+            md_lines.append("| " + " | ".join(["---"] * col_count) + " |")
+            for r in rows[1:]:
+                md_lines.append("| " + " | ".join(r) + " |")
+
+            if len(sheets_to_read) > 1:
+                parts.append(f"### Sheet: {sn}\n" + "\n".join(md_lines))
+            else:
+                parts.append("\n".join(md_lines))
+
+        wb.close()
+
+        result = f"Content of {actual_path} ({len(sheets_to_read)} sheet(s)):\n\n" + "\n\n".join(parts)
+        if len(result) > 15000:
+            result = result[:15000] + "\n\n[... Output truncated. Specify a sheet_name to read a specific sheet ...]"
+        return result
+    except Exception as e:
+        return f"Error reading XLSX: {str(e)}"
+
+
+def read_pptx_tool(args: Dict[str, Any]) -> str:
+    """Read the text content of a PPTX file, returning slides as markdown."""
+    path = args.get('path', '')
+    if not path:
+        return "Error: No path provided."
+
+    actual_path = path
+    if not os.path.exists(path):
+        found = find_file_broadly(path)
+        if found:
+            actual_path = found
+        else:
+            return f"Error: File '{path}' not found."
+
+    try:
+        prs = Presentation(actual_path)
+        parts = []
+
+        for si, slide in enumerate(prs.slides, 1):
+            slide_parts = [f"## Slide {si}"]
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    for para in shape.text_frame.paragraphs:
+                        text = para.text.strip()
+                        if text:
+                            level = para.level if hasattr(para, 'level') else 0
+                            if level > 0:
+                                slide_parts.append(f"{'  ' * level}- {text}")
+                            else:
+                                slide_parts.append(text)
+                if shape.has_table:
+                    table = shape.table
+                    rows = []
+                    for ri, row in enumerate(table.rows):
+                        cells = [cell.text.strip() for cell in row.cells]
+                        rows.append("| " + " | ".join(cells) + " |")
+                        if ri == 0:
+                            rows.append("| " + " | ".join(["---"] * len(cells)) + " |")
+                    slide_parts.append("\n".join(rows))
+
+            parts.append("\n".join(slide_parts))
+
+        if not parts:
+            return f"The PPTX '{actual_path}' appears to be empty."
+
+        result = f"Content of {actual_path} ({len(prs.slides)} slide(s)):\n\n" + "\n\n".join(parts)
+        if len(result) > 15000:
+            result = result[:15000] + "\n\n[... Output truncated ...]"
+        return result
+    except Exception as e:
+        return f"Error reading PPTX: {str(e)}"
+
+
+def edit_pdf_tool(args: Dict[str, Any]) -> str:
+    """Edit a PDF by reading its content, applying changes, and rewriting it."""
+    path = args.get('path', '')
+    content = args.get('content', '')
+
+    if not path:
+        return "Error: No path provided."
+    if not content.strip():
+        return "Error: No content provided. Provide the full updated document content in markdown format."
+
+    actual_path = path
+    if not os.path.exists(path):
+        found = find_file_broadly(path)
+        if found:
+            actual_path = found
+        else:
+            return f"Error: File '{path}' not found."
+
+    return create_pdf(actual_path, content)
+
+
+def edit_docx_tool(args: Dict[str, Any]) -> str:
+    """Edit a DOCX by reading its content, applying changes, and rewriting it."""
+    path = args.get('path', '')
+    content = args.get('content', '')
+
+    if not path:
+        return "Error: No path provided."
+    if not content.strip():
+        return "Error: No content provided. Provide the full updated document content in markdown format."
+
+    actual_path = path
+    if not os.path.exists(path):
+        found = find_file_broadly(path)
+        if found:
+            actual_path = found
+        else:
+            return f"Error: File '{path}' not found."
+
+    return create_docx(actual_path, content)
+
+
+def edit_excel_tool(args: Dict[str, Any]) -> str:
+    """Edit an XLSX file by rewriting it with new data."""
+    path = args.get('path', '')
+    content = args.get('content', '')
+    data = args.get('data')
+    title = args.get('title', '')
+
+    if not path:
+        return "Error: No path provided."
+    if not content.strip() and not data:
+        return "Error: No content or data provided."
+
+    actual_path = path
+    if not os.path.exists(path):
+        found = find_file_broadly(path)
+        if found:
+            actual_path = found
+        else:
+            return f"Error: File '{path}' not found."
+
+    return create_excel(actual_path, content, data, title)
+
+
+def edit_pptx_tool(args: Dict[str, Any]) -> str:
+    """Edit a PPTX by reading its content, applying changes, and rewriting it."""
+    path = args.get('path', '')
+    content = args.get('content', '')
+
+    if not path:
+        return "Error: No path provided."
+    if not content.strip():
+        return "Error: No content provided. Provide the full updated presentation content in markdown format."
+
+    actual_path = path
+    if not os.path.exists(path):
+        found = find_file_broadly(path)
+        if found:
+            actual_path = found
+        else:
+            return f"Error: File '{path}' not found."
+
+    return create_pptx(actual_path, content)
+
+
+# ─── Document Read/Edit Tool Definitions ─────────────────────────────
+
+READ_PDF_DEFINITION = ToolDefinition(
+    name="read_pdf",
+    description=(
+        "Read and extract the text content of a PDF file. Returns all pages as formatted text. "
+        "Use this to read existing PDF documents before editing or summarizing them."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "The path to the PDF file to read."
+            }
+        },
+        "required": ["path"]
+    },
+    function=read_pdf_tool,
+    requires_approval=False
+)
+
+READ_DOCX_DEFINITION = ToolDefinition(
+    name="read_docx",
+    description=(
+        "Read and extract the text content of a Word document (DOCX). Returns headings, paragraphs, "
+        "lists, and tables as formatted markdown text. Use this to read existing DOCX files before editing."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "The path to the DOCX file to read."
+            }
+        },
+        "required": ["path"]
+    },
+    function=read_docx_tool,
+    requires_approval=False
+)
+
+READ_EXCEL_DEFINITION = ToolDefinition(
+    name="read_excel",
+    description=(
+        "Read and extract the data from an Excel spreadsheet (XLSX). Returns each sheet's data as a "
+        "markdown table. Optionally specify a sheet_name to read only that sheet."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "The path to the XLSX file to read."
+            },
+            "sheet_name": {
+                "type": "string",
+                "description": "Optional: name of a specific sheet to read. If omitted, reads all sheets."
+            }
+        },
+        "required": ["path"]
+    },
+    function=read_excel_tool,
+    requires_approval=False
+)
+
+READ_PPTX_DEFINITION = ToolDefinition(
+    name="read_pptx",
+    description=(
+        "Read and extract the text content of a PowerPoint presentation (PPTX). Returns each slide's "
+        "text content including titles, bullet points, and tables as markdown."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "The path to the PPTX file to read."
+            }
+        },
+        "required": ["path"]
+    },
+    function=read_pptx_tool,
+    requires_approval=False
+)
+
+EDIT_PDF_DEFINITION = ToolDefinition(
+    name="edit_pdf",
+    description=(
+        "Edit an existing PDF file by rewriting it with updated content. First use read_pdf to get the "
+        "current content, then modify it and pass the full updated content in markdown format. "
+        "The entire document is regenerated with professional styling."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "The path to the PDF file to edit."
+            },
+            "content": {
+                "type": "string",
+                "description": "The FULL updated document content in markdown format."
+            }
+        },
+        "required": ["path", "content"]
+    },
+    function=edit_pdf_tool,
+    requires_approval=True
+)
+
+EDIT_DOCX_DEFINITION = ToolDefinition(
+    name="edit_docx",
+    description=(
+        "Edit an existing Word document (DOCX) by rewriting it with updated content. First use read_docx "
+        "to get the current content, then modify it and pass the full updated content in markdown format. "
+        "The entire document is regenerated with professional styling."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "The path to the DOCX file to edit."
+            },
+            "content": {
+                "type": "string",
+                "description": "The FULL updated document content in markdown format."
+            }
+        },
+        "required": ["path", "content"]
+    },
+    function=edit_docx_tool,
+    requires_approval=True
+)
+
+EDIT_EXCEL_DEFINITION = ToolDefinition(
+    name="edit_excel",
+    description=(
+        "Edit an existing Excel spreadsheet (XLSX) by rewriting it with updated data. First use read_excel "
+        "to get the current content, then pass updated data as a markdown table in 'content' or as an "
+        "array of arrays in 'data'."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "The path to the XLSX file to edit."
+            },
+            "content": {
+                "type": "string",
+                "description": "Updated data as a markdown table."
+            },
+            "data": {
+                "type": "array",
+                "items": {"type": "array", "items": {"type": "string"}},
+                "description": "Updated data as array of arrays. First row is headers."
+            },
+            "title": {
+                "type": "string",
+                "description": "Optional title row above the data."
+            }
+        },
+        "required": ["path"]
+    },
+    function=edit_excel_tool,
+    requires_approval=True
+)
+
+EDIT_PPTX_DEFINITION = ToolDefinition(
+    name="edit_pptx",
+    description=(
+        "Edit an existing PowerPoint presentation (PPTX) by rewriting it with updated content. First use "
+        "read_pptx to get the current content, then modify it and pass the full updated content in markdown "
+        "format. Each # or ## heading starts a new slide."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "The path to the PPTX file to edit."
+            },
+            "content": {
+                "type": "string",
+                "description": "The FULL updated presentation content in markdown format. Each # or ## heading starts a new slide."
+            }
+        },
+        "required": ["path", "content"]
+    },
+    function=edit_pptx_tool,
+    requires_approval=True
+)
 
 
 def is_prompt_injection(text: str) -> bool:
@@ -2856,6 +3839,14 @@ def main():
         CREATE_DOCX_DEFINITION,
         CREATE_EXCEL_DEFINITION,
         CREATE_PPTX_DEFINITION,
+        READ_PDF_DEFINITION,
+        READ_DOCX_DEFINITION,
+        READ_EXCEL_DEFINITION,
+        READ_PPTX_DEFINITION,
+        EDIT_PDF_DEFINITION,
+        EDIT_DOCX_DEFINITION,
+        EDIT_EXCEL_DEFINITION,
+        EDIT_PPTX_DEFINITION,
         GITHUB_CREATE_BRANCH_DEFINITION,
         GITHUB_COMMIT_FILE_DEFINITION,
         GITHUB_COMMIT_LOCAL_FILE_DEFINITION,
