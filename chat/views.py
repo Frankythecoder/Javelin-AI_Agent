@@ -2,7 +2,7 @@ import os
 import json
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
-from django.http import JsonResponse
+from django.http import JsonResponse, FileResponse
 from django.views.decorators.http import require_POST
 from openai import OpenAI
 from decouple import config
@@ -327,3 +327,9 @@ def chat_session_detail_api(request, session_id):
         return JsonResponse({'error': 'Chat not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
+
+
+def serve_logo(request):
+    """Serve the Javelin logo from the project root."""
+    logo_path = os.path.join(settings.BASE_DIR, 'javelin.png')
+    return FileResponse(open(logo_path, 'rb'), content_type='image/png')
