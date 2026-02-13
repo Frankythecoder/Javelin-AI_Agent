@@ -4,20 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Chat with Javelin Agent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- Add Marked.js for markdown support -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         :root {
             --primary: #6366f1;
             --primary-hover: #4f46e5;
-            --bg-gradient: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-            --glass-bg: rgba(255, 255, 255, 0.9);
+            --bg-gradient: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+            --glass-bg: rgba(255, 255, 255, 0.92);
             --user-bubble: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
             --agent-bubble: #ffffff;
             --text-main: #1e293b;
             --text-muted: #64748b;
             --border: #e2e8f0;
-            --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+            --shadow: 0 20px 60px -12px rgba(0, 0, 0, 0.3), 0 8px 20px -8px rgba(0, 0, 0, 0.2);
         }
 
         * {
@@ -35,11 +38,34 @@
             justify-content: center;
             color: var(--text-main);
             padding: 1rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(ellipse at 20% 50%, rgba(99, 102, 241, 0.15) 0%, transparent 50%),
+                        radial-gradient(ellipse at 80% 20%, rgba(168, 85, 247, 0.12) 0%, transparent 50%),
+                        radial-gradient(ellipse at 50% 80%, rgba(59, 130, 246, 0.1) 0%, transparent 50%);
+            animation: bgShift 20s ease-in-out infinite alternate;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        @keyframes bgShift {
+            0% { transform: translate(0, 0) rotate(0deg); }
+            100% { transform: translate(2%, 1%) rotate(3deg); }
         }
 
         .chat-container {
             background: var(--glass-bg);
-            backdrop-filter: blur(12px);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
             border-radius: 24px;
             box-shadow: var(--shadow);
             width: 100%;
@@ -48,8 +74,10 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            border: 1px solid rgba(255, 255, 255, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.25);
             animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            z-index: 1;
         }
 
         @keyframes slideUp {
@@ -59,7 +87,7 @@
 
         .chat-header {
             padding: 1.25rem 2rem;
-            background: white;
+            background: linear-gradient(to right, #ffffff, #f8fafc);
             border-bottom: 1px solid var(--border);
             display: flex;
             align-items: center;
@@ -85,7 +113,13 @@
             background: #10b981;
             border-radius: 50%;
             display: inline-block;
-            box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+            animation: statusPulse 2.5s ease-in-out infinite;
+        }
+
+        @keyframes statusPulse {
+            0%, 100% { box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15); }
+            50% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.08); }
         }
 
         #chatbox {
@@ -104,6 +138,10 @@
         #chatbox::-webkit-scrollbar-thumb {
             background: #cbd5e1;
             border-radius: 10px;
+            transition: background 0.2s;
+        }
+        #chatbox::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
         }
 
         .message {
@@ -127,13 +165,19 @@
             font-size: 0.95rem;
             line-height: 1.6;
             position: relative;
-            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+            transition: box-shadow 0.2s ease;
+        }
+
+        .message-bubble:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
         }
 
         .user .message-bubble {
             background: var(--user-bubble);
             color: white;
             border-bottom-right-radius: 4px;
+            box-shadow: 0 2px 12px rgba(99, 102, 241, 0.25);
         }
 
         .agent .message-bubble {
@@ -145,7 +189,7 @@
 
         /* Markdown Styling */
         .message-bubble pre {
-            background: #1e293b;
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
             color: #f8fafc;
             padding: 1rem;
             border-radius: 0.75rem;
@@ -153,6 +197,7 @@
             margin: 0.75rem 0;
             font-family: 'Fira Code', monospace;
             font-size: 0.85rem;
+            border: 1px solid rgba(255, 255, 255, 0.05);
         }
 
         .message-bubble code {
@@ -170,7 +215,7 @@
 
         .chat-input-container {
             padding: 1.5rem 2rem;
-            background: white;
+            background: linear-gradient(to right, #ffffff, #f8fafc);
             border-top: 1px solid var(--border);
             position: relative;
         }
@@ -218,7 +263,20 @@
 
         button[type="submit"]:hover {
             transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+            box-shadow: 0 6px 20px rgba(79, 70, 229, 0.35);
+        }
+
+        button[type="submit"]:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 8px rgba(79, 70, 229, 0.2);
+        }
+
+        #send-stop-btn.stop-mode {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        }
+
+        #send-stop-btn.stop-mode:hover {
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
         }
 
         /* Mic Button */
@@ -323,11 +381,16 @@
             border: none;
             cursor: pointer;
             font-size: 1rem;
-            opacity: 0.8;
+            opacity: 0.7;
+            transition: all 0.2s ease;
+            padding: 0.25rem 0.4rem;
+            border-radius: 6px;
         }
 
         .agent-controls button:hover {
             opacity: 1;
+            background: rgba(99, 102, 241, 0.08);
+            transform: scale(1.05);
         }
 
         .btn-approve, .btn-deny {
@@ -356,6 +419,7 @@
             border: 1px solid var(--border);
             font-size: 0.875rem;
             color: var(--text-muted);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
         }
 
         .dots { display: flex; gap: 4px; }
@@ -377,6 +441,7 @@
             .chat-container { height: 95vh; border-radius: 16px; }
             .message { max-width: 95%; }
             .chat-header { padding: 1rem; }
+            body::before { display: none; }
         }
 
         /* Chat History Panel */
@@ -570,9 +635,23 @@
             font-size: 0.8rem;
             color: var(--text-muted);
         }
+
+        .bg-logo {
+            position: fixed;
+            top: -48px;
+            left: 37px;
+            width: 320px;
+            opacity: 0.9;
+            z-index: 0;
+            pointer-events: none;
+            filter: brightness(0) invert(1);
+            user-select: none;
+            -webkit-user-select: none;
+        }
     </style>
 </head>
 <body>
+    <img src="/logo.png" alt="" class="bg-logo" />
     <div class="chat-container">
         <header class="chat-header">
             <h1><span class="status-dot"></span> Javelin</h1>
@@ -580,7 +659,6 @@
             <div class="agent-controls">
                 <button title="New Chat" onclick="newChat()">+</button>
                 <button title="Chat History" onclick="toggleHistoryPanel()">🕐</button>
-                <button title="Stop Execution" onclick="controlAgent('stop')">⏹️</button>
                 <button title="Disable Tools" onclick="controlAgent('disable_tools')">🔒</button>
                 <button title="Enable Tools" onclick="controlAgent('enable_tools')">🔓</button>
             </div>
@@ -610,7 +688,7 @@
                 <button type="button" id="mic-btn" class="btn-mic" onclick="toggleMic()" title="Start voice input">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="1" width="6" height="12" rx="3"></rect><path d="M19 10v1a7 7 0 0 1-14 0v-1"></path><line x1="12" y1="18" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
                 </button>
-                <button type="submit">
+                <button type="submit" id="send-stop-btn">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                     Send
                 </button>
@@ -624,6 +702,27 @@
         const messageInput = document.getElementById('message');
         const typingIndicator = document.getElementById('typing-indicator');
         const micBtn = document.getElementById('mic-btn');
+        const sendStopBtn = document.getElementById('send-stop-btn');
+
+        const SEND_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>';
+        const STOP_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>';
+
+        function showStopButton() {
+            sendStopBtn.innerHTML = STOP_SVG + ' Stop';
+            sendStopBtn.classList.add('stop-mode');
+            sendStopBtn.type = 'button';
+            sendStopBtn.onclick = function() {
+                controlAgent('stop');
+                showSendButton();
+            };
+        }
+
+        function showSendButton() {
+            sendStopBtn.innerHTML = SEND_SVG + ' Send';
+            sendStopBtn.classList.remove('stop-mode');
+            sendStopBtn.type = 'submit';
+            sendStopBtn.onclick = null;
+        }
 
         let conversationHistory = [];
         let currentSessionId = null;
@@ -741,6 +840,7 @@
             card.innerHTML = `<div style="text-align:center;color:var(--text-muted);font-size:0.8rem;padding:0.5rem;">Plan ${label}...</div>`;
 
             showTypingIndicator();
+            showStopButton();
 
             try {
                 const response = await fetch('/api/chat/', {
@@ -757,6 +857,7 @@
                 handleResponse(data);
             } catch (error) {
                 hideTypingIndicator();
+                showSendButton();
                 appendMessage('agent', '❌ Error processing dry run decision.');
                 console.error('Dry run approval failed', error);
             }
@@ -765,9 +866,10 @@
         async function handleToolApproval(status, pendingTools, buttonEl) {
             const card = buttonEl.closest('.tool-card');
             card.innerHTML = `<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 0.5rem;">Tool request ${status}...</div>`;
-            
+
             showTypingIndicator();
-            
+            showStopButton();
+
             try {
                 const response = await fetch('/api/chat/', {
                     method: 'POST',
@@ -783,6 +885,7 @@
                 handleResponse(data);
             } catch (error) {
                 hideTypingIndicator();
+                showSendButton();
                 appendMessage('agent', '❌ Error processing tool approval.');
                 console.error('Approval failed', error);
             }
@@ -799,7 +902,8 @@
 
         function handleResponse(data) {
             hideTypingIndicator();
-            
+            showSendButton();
+
             if (data.history) conversationHistory = data.history;
             
             if (data.status === 'pending') {
@@ -825,12 +929,13 @@
             messageInput.value = '';
             messageInput.style.height = 'auto';
             showTypingIndicator();
+            showStopButton();
 
             try {
                 const response = await fetch('/api/chat/', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
+                    body: JSON.stringify({
                         message: message,
                         history: conversationHistory
                     })
@@ -840,6 +945,7 @@
                 handleResponse(data);
             } catch (error) {
                 hideTypingIndicator();
+                showSendButton();
                 appendMessage('agent', '❌ Connection error. Please try again.');
                 console.error('Request failed', error);
             }

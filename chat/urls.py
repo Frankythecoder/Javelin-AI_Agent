@@ -8,4 +8,5 @@ urlpatterns = [
     path('api/chats/', views.chat_sessions_api, name='chat_sessions'),
     path('api/chats/<int:session_id>/', views.chat_session_detail_api, name='chat_session_detail'),
     path('api/files/', views.list_directory_files_api, name='list_directory_files'),
+    path('logo.png', views.serve_logo, name='serve_logo'),
 ]
