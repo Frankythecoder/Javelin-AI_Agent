@@ -7,7 +7,6 @@
 # that the process has permission for. Use with caution!
 
 import os
-import langchain
 import threading
 import requests
 import json
@@ -29,11 +28,18 @@ from email.utils import formatdate, make_msgid
 from email.policy import SMTP
 from urllib.parse import quote
 from openai import OpenAI
-from typing import Dict, List, Callable, Any
+from typing import Dict, List, Callable, Any, Optional, TypedDict
 from django.conf import settings
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Dict, Any
+
+from langchain_openai import ChatOpenAI
+from langchain_core.tools import StructuredTool
+from langchain_core.messages import (
+    BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
+)
+from langgraph.graph import StateGraph, END
+from pydantic import create_model, Field
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -79,6 +85,59 @@ class ToolDefinition:
         self.parameters = parameters
         self.function = function
         self.requires_approval = requires_approval
+
+
+class ApprovalAwareTool(StructuredTool):
+    """StructuredTool subclass that preserves the requires_approval flag."""
+    requires_approval: bool = False
+
+
+def _json_type_to_python(json_type: str):
+    """Map JSON Schema types to Python types."""
+    mapping = {
+        "string": str,
+        "integer": int,
+        "number": float,
+        "boolean": bool,
+        "array": list,
+        "object": dict,
+    }
+    return mapping.get(json_type, str)
+
+
+def tool_definition_to_langchain(td: ToolDefinition) -> ApprovalAwareTool:
+    """Convert a legacy ToolDefinition into a LangChain ApprovalAwareTool."""
+    properties = td.parameters.get("properties", {})
+    required_fields = set(td.parameters.get("required", []))
+
+    field_definitions = {}
+    for field_name, field_schema in properties.items():
+        field_type = _json_type_to_python(field_schema.get("type", "string"))
+        description = field_schema.get("description", "")
+        if field_name in required_fields:
+            field_definitions[field_name] = (field_type, Field(description=description))
+        else:
+            field_definitions[field_name] = (
+                Optional[field_type],
+                Field(default=None, description=description),
+            )
+
+    ArgsModel = create_model(f"{td.name}_args", **field_definitions)
+
+    original_func = td.function
+
+    def wrapper_func(**kwargs) -> str:
+        # Strip None values so the original function only sees provided args
+        cleaned = {k: v for k, v in kwargs.items() if v is not None}
+        return original_func(cleaned)
+
+    return ApprovalAwareTool(
+        name=td.name,
+        description=td.description,
+        func=wrapper_func,
+        args_schema=ArgsModel,
+        requires_approval=td.requires_approval,
+    )
 
 
 def find_file_broadly(filename: str) -> str:
@@ -3873,6 +3932,20 @@ def main():
         print(f"Error: {str(e)}")
 
 
+class AgentState(TypedDict):
+    """State for the LangGraph agent execution graph."""
+    messages: list
+    use_pending: bool
+    dry_run_plan: list
+    pending_tools: list
+    status: str
+    response: str
+    response_history: list
+    stopped: bool
+    tools_enabled: bool
+    execution_path: list
+
+
 class Agent:
     def __init__(self, client, model_name, get_user_message, tools: List[ToolDefinition], max_history: int = 15):
         self.client = client
@@ -3882,10 +3955,26 @@ class Agent:
         self.max_history = max_history
         self.control = AgentControlState()
 
-        
-        # Initialize tools for OpenAI usage
+        # Convert ToolDefinitions to LangChain tools
+        self.langchain_tools = [tool_definition_to_langchain(td) for td in tools]
+        self.tool_map = {t.name: t for t in self.langchain_tools}
+
+        # Create ChatOpenAI model and bind tools
+        self.llm = ChatOpenAI(
+            model=model_name,
+            api_key=client.api_key,
+        )
+        self.llm_with_tools = self.llm.bind_tools(self.langchain_tools)
+
+        # Keep for backward compat
         self.openai_tools = self._convert_tools_to_openai_format()
-        
+
+        # Build the LangGraph
+        self._graph = self._build_graph()
+
+        # Test hook: set to a node name to simulate a failure there
+        self._test_fail_node = None
+
         # System instruction for agentic behavior
         self.system_instruction = """
         You are an expert AI software engineer. When performing tasks:
@@ -3907,6 +3996,208 @@ class Agent:
         13. If the user denies a tool call or action, explicitly state in your response that you could not finish the task because the user denied it.
         14. For ALL GitHub operations (creating branches, committing files, raising pull requests), use ONLY the github_create_branch, github_commit_file, github_commit_local_file, and github_create_pr MCP tools. NEVER use run_code with git commands for GitHub operations. The workflow is: Step 1: github_create_branch -> Step 2: github_commit_file or github_commit_local_file -> Step 3: github_create_pr.
         """
+
+    # ----------------------------------------------------------------
+    #  LangGraph: build the execution graph
+    # ----------------------------------------------------------------
+
+    def _build_graph(self):
+        """Build and compile the LangGraph StateGraph."""
+        agent_self = self
+
+        # -- Graph nodes --------------------------------------------------
+
+        def call_model(state: AgentState) -> dict:
+            """Invoke the LLM with current messages and bound tools."""
+            path = state.get("execution_path", []) + ["call_model"]
+            if state["stopped"]:
+                return {"status": "stopped", "response": "\u26d4 Execution stopped mid-response.", "execution_path": path}
+            try:
+                if agent_self._test_fail_node == "call_model":
+                    agent_self._test_fail_node = None
+                    raise ConnectionError("Simulated failure: Could not reach LLM API (no internet connection)")
+                response = agent_self.llm_with_tools.invoke(state["messages"])
+                return {"messages": state["messages"] + [response], "execution_path": path}
+            except Exception as e:
+                error_path = state.get("execution_path", []) + ["call_model \u2717"]
+                return {
+                    "status": "error",
+                    "response": f"LLM call failed at **call_model**: {str(e)}",
+                    "execution_path": error_path,
+                    "response_history": agent_self._messages_to_dicts(state["messages"]),
+                }
+
+        def collect_dry_run(state: AgentState) -> dict:
+            """Collect all tool calls into a dry-run plan without executing."""
+            path = state.get("execution_path", []) + ["collect_dry_run"]
+            try:
+                if agent_self._test_fail_node == "collect_dry_run":
+                    agent_self._test_fail_node = None
+                    raise RuntimeError("Simulated failure: Could not build dry-run plan")
+                ai_message = state["messages"][-1]
+                plan = []
+                for tc in ai_message.tool_calls:
+                    plan.append({
+                        "id": tc["id"],
+                        "name": tc["name"],
+                        "arguments": tc["args"],
+                        "summary": agent_self._summarize_tool_call(tc["name"], tc["args"])
+                    })
+
+                user_request = ""
+                for msg in reversed(state["messages"]):
+                    if isinstance(msg, HumanMessage):
+                        user_request = msg.content
+                        break
+
+                history = agent_self._messages_to_dicts(state["messages"])
+                return {
+                    "status": "dry_run",
+                    "dry_run_plan": plan,
+                    "response": agent_self._generate_plan_summary(plan, user_request),
+                    "response_history": history,
+                    "execution_path": path,
+                }
+            except Exception as e:
+                error_path = state.get("execution_path", []) + ["collect_dry_run \u2717"]
+                return {
+                    "status": "error",
+                    "response": f"Failed at **collect_dry_run**: {str(e)}",
+                    "execution_path": error_path,
+                    "response_history": agent_self._messages_to_dicts(state["messages"]),
+                }
+
+        def execute_or_hold_tools(state: AgentState) -> dict:
+            """Execute low-risk tools immediately; hold high-risk tools for approval."""
+            path = state.get("execution_path", []) + ["execute_or_hold_tools"]
+            try:
+                if agent_self._test_fail_node == "execute_or_hold_tools":
+                    agent_self._test_fail_node = None
+                    raise RuntimeError("Simulated failure: Tool execution engine crashed")
+                ai_message = state["messages"][-1]
+                new_messages = list(state["messages"])
+                pending = []
+
+                for tc in ai_message.tool_calls:
+                    if agent_self.control.stopped:
+                        return {
+                            "messages": new_messages,
+                            "status": "stopped",
+                            "response": "\u26d4 Agent execution was stopped.",
+                            "response_history": agent_self._messages_to_dicts(new_messages),
+                            "execution_path": path,
+                        }
+
+                    tool = agent_self.tool_map.get(tc["name"])
+                    if tool and tool.requires_approval:
+                        pending.append({
+                            "id": tc["id"],
+                            "name": tc["name"],
+                            "arguments": tc["args"]
+                        })
+                    else:
+                        result = agent_self._execute_tool_by_name(tc["name"], tc["args"])
+                        new_messages.append(ToolMessage(
+                            content=result,
+                            tool_call_id=tc["id"],
+                            name=tc["name"],
+                        ))
+
+                if pending:
+                    history = agent_self._messages_to_dicts(new_messages)
+                    return {
+                        "messages": new_messages,
+                        "status": "pending",
+                        "pending_tools": pending,
+                        "response": ai_message.content or "Approve the next action:",
+                        "response_history": history,
+                        "execution_path": path,
+                    }
+
+                # All tools were low-risk and already executed; loop back to model
+                return {"messages": new_messages, "pending_tools": [], "execution_path": path}
+            except Exception as e:
+                error_path = state.get("execution_path", []) + ["execute_or_hold_tools \u2717"]
+                return {
+                    "messages": state["messages"],
+                    "status": "error",
+                    "response": f"Tool execution failed at **execute_or_hold_tools**: {str(e)}",
+                    "execution_path": error_path,
+                    "response_history": agent_self._messages_to_dicts(state["messages"]),
+                }
+
+        def format_output(state: AgentState) -> dict:
+            """Format the final text response."""
+            path = state.get("execution_path", []) + ["format_output"]
+            try:
+                if agent_self._test_fail_node == "format_output":
+                    agent_self._test_fail_node = None
+                    raise RuntimeError("Simulated failure: Could not format output")
+                history = agent_self._messages_to_dicts(state["messages"])
+                result = {"response_history": history, "execution_path": path}
+                # If status was already set (e.g. "stopped" or "error"), preserve it
+                if not state.get("status"):
+                    last = state["messages"][-1]
+                    result["status"] = "success"
+                    result["response"] = (
+                        last.content if isinstance(last, AIMessage) else "No response generated"
+                    ) or "No response generated"
+                return result
+            except Exception as e:
+                error_path = state.get("execution_path", []) + ["format_output \u2717"]
+                return {
+                    "status": "error",
+                    "response": f"Failed at **format_output**: {str(e)}",
+                    "execution_path": error_path,
+                    "response_history": [],
+                }
+
+        # -- Conditional routing ------------------------------------------
+
+        def route_after_model(state: AgentState) -> str:
+            if state.get("status") in ("stopped", "error"):
+                return "format_output"
+            last = state["messages"][-1]
+            if not isinstance(last, AIMessage) or not last.tool_calls:
+                return "format_output"
+            if state["use_pending"]:
+                return "execute_or_hold_tools"
+            return "collect_dry_run"
+
+        def route_after_tools(state: AgentState) -> str:
+            if state.get("status") in ("stopped", "error"):
+                return "format_output"
+            if state["pending_tools"]:
+                return END
+            return "call_model"
+
+        # -- Assemble graph -----------------------------------------------
+
+        graph = StateGraph(AgentState)
+        graph.add_node("call_model", call_model)
+        graph.add_node("collect_dry_run", collect_dry_run)
+        graph.add_node("execute_or_hold_tools", execute_or_hold_tools)
+        graph.add_node("format_output", format_output)
+
+        graph.set_entry_point("call_model")
+        graph.add_conditional_edges("call_model", route_after_model, {
+            "format_output": "format_output",
+            "collect_dry_run": "collect_dry_run",
+            "execute_or_hold_tools": "execute_or_hold_tools",
+        })
+        graph.add_conditional_edges("execute_or_hold_tools", route_after_tools, {
+            END: END,
+            "call_model": "call_model",
+            "format_output": "format_output",
+        })
+        graph.add_edge("collect_dry_run", END)
+        graph.add_edge("format_output", END)
+
+        return graph.compile()
+
+    # ----------------------------------------------------------------
+    #  Public API (same signatures as the original Agent)
+    # ----------------------------------------------------------------
 
     def chat_once(self, conversation_history=None, message=None, use_pending=False):
         """
@@ -3931,168 +4222,308 @@ class Agent:
             if self.control.stopped:
                 return {
                     "status": "stopped",
-                    "response": "⛔ Agent execution was stopped."
+                    "response": "\u26d4 Agent execution was stopped."
                 }
 
-            messages = [
-                {"role": "system", "content": self.system_instruction}
-            ]
-            
-            # If we have conversation history, add it
+            # Build LangChain message list
+            messages = [SystemMessage(content=self.system_instruction)]
             if conversation_history:
-                for msg in conversation_history:
-                    role = msg.get('role')
-                    # Skip existing system messages in history to avoid duplication
-                    if role == 'system':
+                for lc_msg in self._dicts_to_messages(conversation_history):
+                    if isinstance(lc_msg, SystemMessage):
                         continue
-                        
-                    content = msg.get('content')
-                    tool_calls = msg.get('tool_calls')
-                    tool_call_id = msg.get('tool_call_id')
-                    name = msg.get('name')
-                    
-                    # Construct message dict based on what's available
-                    msg_dict = {"role": role}
-                    if content is not None: msg_dict["content"] = content
-                    if tool_calls: msg_dict["tool_calls"] = tool_calls
-                    if tool_call_id: msg_dict["tool_call_id"] = tool_call_id
-                    if name: msg_dict["name"] = name
-                    
-                    messages.append(msg_dict)
-            
-            # If a new message is provided, append it
+                    messages.append(lc_msg)
+
             if message:
                 if is_prompt_injection(message):
                     return {"status": "error", "message": "Security Warning: Potential prompt injection detected. Message blocked."}
-                messages.append({"role": "user", "content": message})
-            
-            # Send the message and get response
-            response = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=self._trim_messages(messages),
-                tools=self.openai_tools,
-                tool_choice="auto"
-            )
-            
-            # Process the response and return the final text
-            return self._process_response_for_api(response, messages, use_pending=use_pending)
+                messages.append(HumanMessage(content=message))
+
+            messages = self._trim_messages(messages)
+
+            initial_state: AgentState = {
+                "messages": messages,
+                "use_pending": use_pending,
+                "dry_run_plan": [],
+                "pending_tools": [],
+                "status": "",
+                "response": "",
+                "response_history": [],
+                "stopped": self.control.stopped,
+                "tools_enabled": self.control.tools_enabled,
+                "execution_path": ["__start__"],
+            }
+
+            result = self._graph.invoke(initial_state, {"recursion_limit": 25})
+
+            # Build execution path string
+            path = result.get("execution_path", []) + ["__end__"]
+
+            # Build output in the same format the frontend expects
+            output = {
+                "status": result["status"],
+                "response": result["response"],
+                "execution_path": path,
+            }
+            if result["status"] == "dry_run":
+                output["dry_run_plan"] = result["dry_run_plan"]
+                output["history"] = result["response_history"]
+            elif result["status"] == "pending":
+                output["pending_tools"] = result["pending_tools"]
+                output["history"] = result["response_history"]
+            else:
+                output["history"] = result["response_history"]
+
+            return output
 
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            return {
+                "status": "error",
+                "response": f"Error: {str(e)}",
+                "message": str(e),
+                "execution_path": ["__start__", "graph_error \u2717", "__end__"],
+            }
 
-    def _process_response_for_api(self, response, messages, use_pending=False):
-        """
-        Process response for API usage - returns structured response.
+    def execute_dry_run(self, dry_run_plan: List[Dict[str, Any]], history: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Execute every tool in an approved dry-run plan, then fetch the model follow-up.
 
-        use_pending=False  →  dry-run mode: every tool call is collected into
-                              a plan and returned as status="dry_run" without
-                              executing anything.
-        use_pending=True   →  per-tool mode: tools whose definition has
-                              requires_approval=True are held as
-                              status="pending"; all others execute immediately.
-                              This is the mode used after the initial dry-run
-                              plan has been approved.
+        The follow-up is processed with use_pending=True so any further tool
+        calls the model issues go through per-tool approval rather than
+        surfacing as another dry-run round.
         """
         try:
-            if self.control.stopped:
-                return {
-                    "status": "stopped",
-                    "response": "⛔ Execution stopped mid-response."
-                }
-            message = response.choices[0].message
-            
-            # Convert message to dict for storage/history
-            message_dict = {"role": "assistant", "content": message.content}
-            if message.tool_calls:
-                message_dict["tool_calls"] = [
-                    {
-                        "id": tc.id,
-                        "type": tc.type,
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments
-                        }
-                    } for tc in message.tool_calls
-                ]
-            
-            messages.append(message_dict)
-            
-            if message.tool_calls:
-                if use_pending:
-                    # --- per-tool approval mode (plan already approved) ---
-                    pending_tools = []
-                    for tool_call in message.tool_calls:
-                        function_name = tool_call.function.name
-                        function_args = json.loads(tool_call.function.arguments)
+            # Convert dict history to LangChain messages (history already contains system msg)
+            messages = self._dicts_to_messages(history)
+            if not messages or not isinstance(messages[0], SystemMessage):
+                messages.insert(0, SystemMessage(content=self.system_instruction))
 
-                        tool_def = next((t for t in self.tools if t.name == function_name), None)
-                        if tool_def and tool_def.requires_approval:
-                            pending_tools.append({
-                                "id": tool_call.id,
-                                "name": function_name,
-                                "arguments": function_args
-                            })
-                        else:
-                            # Read-only / low-risk tool — execute immediately
-                            result = self._execute_tool_by_name(function_name, function_args)
-                            messages.append({
-                                "tool_call_id": tool_call.id,
-                                "role": "tool",
-                                "name": function_name,
-                                "content": result,
-                            })
+            # Execute each approved tool
+            for tool_call in dry_run_plan:
+                if self.control.stopped:
+                    return {"status": "stopped", "response": "\u26d4 Agent execution was stopped."}
 
-                    if pending_tools:
-                        return {
-                            "status": "pending",
-                            "pending_tools": pending_tools,
-                            "response": message.content or "Approve the next action:",
-                            "history": messages
-                        }
+                result = self._execute_tool_by_name(tool_call['name'], tool_call['arguments'])
+                messages.append(ToolMessage(
+                    content=result,
+                    tool_call_id=tool_call['id'],
+                    name=tool_call['name'],
+                ))
 
-                    # All tools were low-risk and already executed; ask the model
-                    # for a follow-up, staying in per-tool mode.
-                    follow_up = self.client.chat.completions.create(
-                        model=self.model_name,
-                        messages=self._trim_messages(messages),
-                        tools=self.openai_tools,
-                        tool_choice="auto"
-                    )
-                    return self._process_response_for_api(follow_up, messages, use_pending=True)
+            # Run the graph for follow-up in per-tool mode
+            initial_state: AgentState = {
+                "messages": self._trim_messages(messages),
+                "use_pending": True,
+                "dry_run_plan": [],
+                "pending_tools": [],
+                "status": "",
+                "response": "",
+                "response_history": [],
+                "stopped": self.control.stopped,
+                "tools_enabled": self.control.tools_enabled,
+                "execution_path": ["__start__"],
+            }
 
-                else:
-                    # --- dry-run mode (fresh task, nothing approved yet) ---
-                    dry_run_plan = []
-                    for tool_call in message.tool_calls:
-                        function_name = tool_call.function.name
-                        function_args = json.loads(tool_call.function.arguments)
+            result = self._graph.invoke(initial_state, {"recursion_limit": 25})
 
-                        dry_run_plan.append({
-                            "id": tool_call.id,
-                            "name": function_name,
-                            "arguments": function_args,
-                            "summary": self._summarize_tool_call(function_name, function_args)
-                        })
+            path = result.get("execution_path", []) + ["__end__"]
 
-                    # Pull the most recent user message so the summary
-                    # prompt is grounded in what was actually asked.
-                    user_request = ""
-                    for msg in reversed(messages):
-                        if msg.get("role") == "user":
-                            user_request = msg.get("content", "")
-                            break
+            output = {
+                "status": result["status"],
+                "response": result["response"],
+                "execution_path": path,
+            }
+            if result["status"] == "pending":
+                output["pending_tools"] = result["pending_tools"]
+            output["history"] = result["response_history"]
+            return output
 
-                    return {
-                        "status": "dry_run",
-                        "dry_run_plan": dry_run_plan,
-                        "response": self._generate_plan_summary(dry_run_plan, user_request),
-                        "history": messages
-                    }
-                
-            return {"status": "success", "response": message.content or "No response generated", "history": messages}
-            
         except Exception as e:
-            return {"status": "error", "message": f"Error processing response: {str(e)}"}
+            return {
+                "status": "error",
+                "response": f"Error executing dry run: {str(e)}",
+                "message": f"Error executing dry run: {str(e)}",
+                "execution_path": ["__start__", "execute_dry_run \u2717", "__end__"],
+            }
+
+    # ----------------------------------------------------------------
+    #  CLI interactive mode
+    # ----------------------------------------------------------------
+
+    def run(self):
+        print("Chat with OpenAI (use 'ctrl-c' or type 'quit' to exit)")
+
+        self.messages = [SystemMessage(content=self.system_instruction)]
+
+        while True:
+            if self.control.stopped:
+                print("\u26d4 Agent execution stopped.")
+                break
+
+            print("\033[94mYou\033[0m: ", end="")
+            user_input, ok = self.get_user_message()
+            if not ok:
+                break
+
+            # Check for quit command
+            if user_input.lower().strip() in ['quit', 'exit', 'q']:
+                print("Goodbye!")
+                break
+
+            self.messages.append(HumanMessage(content=user_input))
+
+            try:
+                response = self.llm_with_tools.invoke(
+                    self._trim_messages(self.messages)
+                )
+                self._process_response_simple(response)
+            except Exception as e:
+                print(f"Error: {str(e)}")
+                import traceback
+                print(f"Traceback: {traceback.format_exc()}")
+
+    def _process_response_simple(self, ai_message):
+        """Simplified response processing for CLI mode (no approval system)."""
+        try:
+            self.messages.append(ai_message)
+
+            # Handle text response
+            if ai_message.content:
+                print(f"\033[93mOpenAI\033[0m: {ai_message.content}")
+
+            # Handle tool calls
+            if ai_message.tool_calls:
+                for tc in ai_message.tool_calls:
+                    args_str = json.dumps(tc["args"]).replace('\\\\n', '\\n').replace('\\n', '\n')
+                    print(f"\033[92mtool\033[0m: {tc['name']}({args_str})")
+
+                    result = self._execute_tool_by_name(tc["name"], tc["args"])
+
+                    self.messages.append(ToolMessage(
+                        content=result,
+                        tool_call_id=tc["id"],
+                        name=tc["name"],
+                    ))
+
+                # Get follow-up response
+                try:
+                    follow_up = self.llm_with_tools.invoke(
+                        self._trim_messages(self.messages)
+                    )
+                    self._process_response_simple(follow_up)
+                except Exception as e:
+                    print(f"Error processing follow-up: {str(e)}")
+
+        except Exception as e:
+            print(f"Error processing response: {str(e)}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
+
+    # ----------------------------------------------------------------
+    #  Tool execution (unchanged logic - calls original ToolDefinition.function)
+    # ----------------------------------------------------------------
+
+    def _execute_tool_by_name(self, name, args):
+        """Find and execute a tool by name."""
+        if self.control.stopped:
+            return "\u26d4 Agent execution stopped."
+
+        if not self.control.tools_enabled:
+            return "\U0001f512 Tool execution disabled by kill switch."
+
+        from chat.models import ToolLog
+        args_str = json.dumps(args).replace('\\\\n', '\\n').replace('\\n', '\n')
+        print(f"\033[96mTool Call:\033[0m {name}({args_str})")
+        for tool in self.tools:
+            if tool.name == name:
+                try:
+                    result = tool.function(args)
+                    # Save log to database
+                    ToolLog.objects.create(
+                        tool_name=name,
+                        input_args=json.dumps(args),
+                        output_result=str(result)
+                    )
+                    return result
+                except Exception as e:
+                    error_msg = f"Error executing tool: {str(e)}"
+                    # Save error log to database
+                    ToolLog.objects.create(
+                        tool_name=name,
+                        input_args=json.dumps(args),
+                        output_result=error_msg
+                    )
+                    return error_msg
+        return f"Tool '{name}' not found"
+
+    # ----------------------------------------------------------------
+    #  Message format conversion helpers
+    # ----------------------------------------------------------------
+
+    def _dicts_to_messages(self, history: List[Dict[str, Any]]) -> List[BaseMessage]:
+        """Convert frontend dict-format history to LangChain message objects."""
+        messages = []
+        for msg in history:
+            role = msg.get("role")
+            if role == "system":
+                messages.append(SystemMessage(content=msg.get("content", "")))
+            elif role == "user":
+                messages.append(HumanMessage(content=msg.get("content", "")))
+            elif role == "assistant":
+                kwargs: Dict[str, Any] = {"content": msg.get("content") or ""}
+                if msg.get("tool_calls"):
+                    kwargs["tool_calls"] = [
+                        {
+                            "id": tc["id"],
+                            "name": tc["function"]["name"],
+                            "args": json.loads(tc["function"]["arguments"])
+                                    if isinstance(tc["function"]["arguments"], str)
+                                    else tc["function"]["arguments"],
+                        }
+                        for tc in msg["tool_calls"]
+                    ]
+                messages.append(AIMessage(**kwargs))
+            elif role == "tool":
+                messages.append(ToolMessage(
+                    content=msg.get("content", ""),
+                    tool_call_id=msg.get("tool_call_id", ""),
+                    name=msg.get("name", ""),
+                ))
+        return messages
+
+    def _messages_to_dicts(self, messages: List[BaseMessage]) -> List[Dict[str, Any]]:
+        """Convert LangChain messages back to the frontend dict format."""
+        result = []
+        for msg in messages:
+            if isinstance(msg, SystemMessage):
+                result.append({"role": "system", "content": msg.content})
+            elif isinstance(msg, HumanMessage):
+                result.append({"role": "user", "content": msg.content})
+            elif isinstance(msg, AIMessage):
+                d: Dict[str, Any] = {"role": "assistant", "content": msg.content}
+                if msg.tool_calls:
+                    d["tool_calls"] = [
+                        {
+                            "id": tc["id"],
+                            "type": "function",
+                            "function": {
+                                "name": tc["name"],
+                                "arguments": json.dumps(tc["args"])
+                            }
+                        }
+                        for tc in msg.tool_calls
+                    ]
+                result.append(d)
+            elif isinstance(msg, ToolMessage):
+                result.append({
+                    "role": "tool",
+                    "tool_call_id": msg.tool_call_id,
+                    "name": msg.name,
+                    "content": msg.content,
+                })
+        return result
+
+    # ----------------------------------------------------------------
+    #  Dry-run plan helpers (unchanged logic)
+    # ----------------------------------------------------------------
 
     def _summarize_tool_call(self, name: str, args: Dict[str, Any]) -> str:
         """Return a one-line, human-readable description of a tool call for the dry-run plan."""
@@ -4133,32 +4564,23 @@ class Agent:
         summary stays grounded.  Falls back to a generic string on any failure
         so the card still renders."""
         steps = "\n".join(
-            f"{i + 1}. {step['summary']}  —  {step['name']}({json.dumps(step['arguments'])})"
+            f"{i + 1}. {step['summary']}  \u2014  {step['name']}({json.dumps(step['arguments'])})"
             for i, step in enumerate(dry_run_plan)
         )
         user_ctx = f"The user asked: \"{user_request}\"\n\n" if user_request else ""
 
         try:
-            resp = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are about to execute an action plan on behalf of the user. "
-                            "Summarise the plan below in 2-4 clear sentences of plain English. "
-                            "Describe what will happen from start to finish and what the end "
-                            "result will be. Do not repeat raw tool names or JSON — translate "
-                            "everything into natural language."
-                        )
-                    },
-                    {
-                        "role": "user",
-                        "content": f"{user_ctx}Planned actions:\n\n{steps}\n\nSummarise what this plan will do:"
-                    }
-                ]
-            )
-            summary = resp.choices[0].message.content
+            resp = self.llm.invoke([
+                SystemMessage(content=(
+                    "You are about to execute an action plan on behalf of the user. "
+                    "Summarise the plan below in 2-4 clear sentences of plain English. "
+                    "Describe what will happen from start to finish and what the end "
+                    "result will be. Do not repeat raw tool names or JSON \u2014 translate "
+                    "everything into natural language."
+                )),
+                HumanMessage(content=f"{user_ctx}Planned actions:\n\n{steps}\n\nSummarise what this plan will do:")
+            ])
+            summary = resp.content
             if summary and summary.strip():
                 return summary.strip()
         except Exception as e:
@@ -4166,156 +4588,12 @@ class Agent:
 
         return "Here is the planned action(s). Review and approve or deny before execution:"
 
-    def execute_dry_run(self, dry_run_plan: List[Dict[str, Any]], history: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Execute every tool in an approved dry-run plan, then fetch the model follow-up.
-
-        The follow-up is processed with use_pending=True so any further tool
-        calls the model issues go through per-tool approval rather than
-        surfacing as another dry-run round.
-        """
-        try:
-            for tool_call in dry_run_plan:
-                if self.control.stopped:
-                    return {"status": "stopped", "response": "\u26d4 Agent execution was stopped."}
-
-                result = self._execute_tool_by_name(tool_call['name'], tool_call['arguments'])
-                history.append({
-                    "tool_call_id": tool_call['id'],
-                    "role": "tool",
-                    "name": tool_call['name'],
-                    "content": result,
-                })
-
-            follow_up = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=self._trim_messages(history),
-                tools=self.openai_tools,
-                tool_choice="auto"
-            )
-            return self._process_response_for_api(follow_up, history, use_pending=True)
-        except Exception as e:
-            return {"status": "error", "message": f"Error executing dry run: {str(e)}"}
-
-    def run(self):
-        print("Chat with OpenAI (use 'ctrl-c' or type 'quit' to exit)")
-
-        self.messages = [
-            {"role": "system", "content": self.system_instruction}
-        ]
-
-        while True:
-            if self.control.stopped:
-                print("⛔ Agent execution stopped.")
-                break
-
-            print("\033[94mYou\033[0m: ", end="")
-            user_input, ok = self.get_user_message()
-            if not ok:
-                break
-
-            # Check for quit command
-            if user_input.lower().strip() in ['quit', 'exit', 'q']:
-                print("Goodbye!")
-                break
-
-            self.messages.append({"role": "user", "content": user_input})
-
-            try:
-                response = self.client.chat.completions.create(
-                    model=self.model_name,
-                    messages=self._trim_messages(self.messages),
-                    tools=self.openai_tools,
-                    tool_choice="auto"
-                )
-                self._process_response_simple(response)
-            except Exception as e:
-                print(f"Error: {str(e)}")
-                # Print more detailed error information
-                import traceback
-                print(f"Traceback: {traceback.format_exc()}")
-
-    def _process_response_simple(self, response):
-        """Simplified response processing for OpenAI."""
-        try:
-            message = response.choices[0].message
-            self.messages.append(message)
-
-            # Handle text response
-            if message.content:
-                print(f"\033[93mOpenAI\033[0m: {message.content}")
-
-            # Handle tool calls
-            if message.tool_calls:
-                for tool_call in message.tool_calls:
-                    function_name = tool_call.function.name
-                    function_args = json.loads(tool_call.function.arguments)
-                    
-                    args_str = json.dumps(function_args).replace('\\\\n', '\\n').replace('\\n', '\n')
-                    print(f"\033[92mtool\033[0m: {function_name}({args_str})")
-                    
-                    # Execute the tool
-                    result = self._execute_tool_by_name(function_name, function_args)
-                    
-                    # Append tool response to messages
-                    self.messages.append({
-                        "tool_call_id": tool_call.id,
-                        "role": "tool",
-                        "name": function_name,
-                        "content": result,
-                    })
-
-                # Get follow-up response from OpenAI
-                try:
-                    follow_up = self.client.chat.completions.create(
-                        model=self.model_name,
-                        messages=self._trim_messages(self.messages),
-                        tools=self.openai_tools,
-                        tool_choice="auto"
-                    )
-                    self._process_response_simple(follow_up)
-                except Exception as e:
-                    print(f"Error processing follow-up: {str(e)}")
-                    
-        except Exception as e:
-            print(f"Error processing response: {str(e)}")
-            import traceback
-            print(f"Traceback: {traceback.format_exc()}")
-
-    def _execute_tool_by_name(self, name, args):
-        """Find and execute a tool by name."""
-        if self.control.stopped:
-            return "⛔ Agent execution stopped."
-
-        if not self.control.tools_enabled:
-            return "🔒 Tool execution disabled by kill switch."
-
-        from chat.models import ToolLog
-        args_str = json.dumps(args).replace('\\\\n', '\\n').replace('\\n', '\n')
-        print(f"\033[96mTool Call:\033[0m {name}({args_str})")
-        for tool in self.tools:
-            if tool.name == name:
-                try:
-                    result = tool.function(args)
-                    # Save log to database
-                    ToolLog.objects.create(
-                        tool_name=name,
-                        input_args=json.dumps(args),
-                        output_result=str(result)
-                    )
-                    return result
-                except Exception as e:
-                    error_msg = f"Error executing tool: {str(e)}"
-                    # Save error log to database
-                    ToolLog.objects.create(
-                        tool_name=name,
-                        input_args=json.dumps(args),
-                        output_result=error_msg
-                    )
-                    return error_msg
-        return f"Tool '{name}' not found"
+    # ----------------------------------------------------------------
+    #  Backward-compat helpers
+    # ----------------------------------------------------------------
 
     def _convert_tools_to_openai_format(self):
-        """Convert tools to OpenAI format."""
+        """Convert tools to OpenAI format (kept for backward compatibility)."""
         openai_tools = []
         for tool in self.tools:
             openai_tools.append({
@@ -4332,32 +4610,44 @@ class Agent:
         """
         Trim message history to stay within token limits.
         Keeps the system message and ensures tool messages are not separated from their tool_calls.
+        Works with both LangChain message objects and plain dicts.
         """
         if len(messages) <= self.max_history + 1:
             return messages
-            
-        system_message = messages[0] if messages[0].get("role") == "system" else None
-        
+
+        first = messages[0]
+        is_system = (
+            isinstance(first, SystemMessage)
+            or (isinstance(first, dict) and first.get("role") == "system")
+        )
+        system_message = first if is_system else None
+
         # Keep the most recent messages
         start_index = len(messages) - self.max_history
-        
+
         # Ensure we don't start in the middle of a tool response sequence
-        # A 'tool' role message MUST be preceded by an 'assistant' message with 'tool_calls'
-        while start_index > 1 and messages[start_index].get("role") == "tool":
+        def _is_tool(m):
+            if isinstance(m, ToolMessage):
+                return True
+            if isinstance(m, dict) and m.get("role") == "tool":
+                return True
+            return False
+
+        while start_index > 1 and _is_tool(messages[start_index]):
             start_index -= 1
-            
+
         recent_messages = messages[start_index:]
-        
+
         trimmed = []
         if system_message:
             trimmed.append(system_message)
         trimmed.extend(recent_messages)
-        
+
         return trimmed
 
     def generate_code(self, task_description: str, language: str = "python", stepwise: bool = True) -> str:
         """
-        Generate complex code using OpenAI with advanced prompt engineering.
+        Generate complex code using the LLM with advanced prompt engineering.
         Args:
             task_description (str): Description of the code to generate.
             language (str): Programming language for the code.
@@ -4373,7 +4663,7 @@ class Agent:
                 f"""
                 Write a complete, well-structured {language} program for the following task:
                 {task_description}
-                
+
                 Please follow these steps:
                 1. Start by outlining the main components or functions needed.
                 2. Implement each component step by step, with clear comments.
@@ -4383,12 +4673,9 @@ class Agent:
             )
         else:
             prompt = f"Write a complete {language} program for the following task: {task_description}"
-        
-        response = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return response.choices[0].message.content.strip()
+
+        response = self.llm.invoke([HumanMessage(content=prompt)])
+        return response.content.strip()
 
 
 if __name__ == "__main__":

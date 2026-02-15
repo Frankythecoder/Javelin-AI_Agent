@@ -9,6 +9,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- Add Marked.js for markdown support -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Mermaid.js for LangGraph visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
     <style>
         :root {
             --primary: #6366f1;
@@ -697,6 +699,9 @@
     </div>
 
     <script>
+        // Initialize Mermaid.js for LangGraph visualization
+        mermaid.initialize({ startOnLoad: false, theme: 'default' });
+
         const chatbox = document.getElementById('chatbox');
         const chatForm = document.getElementById('chat-form');
         const messageInput = document.getElementById('message');
@@ -777,6 +782,93 @@
             
             messageDiv.appendChild(bubble);
             chatbox.appendChild(messageDiv);
+            chatbox.scrollTop = chatbox.scrollHeight;
+        }
+
+        async function appendMermaidGraph(mermaidCode, description) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message agent';
+
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+
+            // Add description
+            if (description) {
+                const desc = document.createElement('div');
+                desc.innerHTML = marked.parse(description);
+                desc.style.marginBottom = '1rem';
+                bubble.appendChild(desc);
+            }
+
+            // Render the Mermaid diagram
+            const graphContainer = document.createElement('div');
+            graphContainer.style.cssText = 'background:#f8fafc;border-radius:12px;padding:1.5rem;text-align:center;overflow-x:auto;';
+            const graphId = 'mermaid-' + Date.now();
+            try {
+                const { svg } = await mermaid.render(graphId, mermaidCode);
+                graphContainer.innerHTML = svg;
+            } catch (err) {
+                graphContainer.innerHTML = '<pre style="text-align:left;font-size:0.8rem;">' + escapeHtml(mermaidCode) + '</pre>';
+                console.error('Mermaid render error:', err);
+            }
+
+            bubble.appendChild(graphContainer);
+            messageDiv.appendChild(bubble);
+            chatbox.appendChild(messageDiv);
+            chatbox.scrollTop = chatbox.scrollHeight;
+        }
+
+        function appendExecutionPath(path) {
+            const pathDiv = document.createElement('div');
+            pathDiv.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:0.25rem;padding:0.5rem 1rem;margin:0.25rem auto;max-width:fit-content;flex-wrap:wrap;';
+
+            const label = document.createElement('span');
+            label.textContent = 'Graph path:';
+            label.style.cssText = 'font-size:0.7rem;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-right:0.25rem;';
+            pathDiv.appendChild(label);
+
+            path.forEach((node, i) => {
+                // Node pill
+                const pill = document.createElement('span');
+                pill.textContent = node;
+                pill.style.cssText = 'font-size:0.72rem;font-family:monospace;padding:0.15rem 0.5rem;border-radius:9999px;font-weight:500;';
+                const isError = node.endsWith(' \u2717');
+                if (isError) {
+                    pill.style.background = '#fee2e2';
+                    pill.style.color = '#991b1b';
+                    pill.style.border = '1px solid #fca5a5';
+                    pill.style.fontWeight = '700';
+                } else if (node === '__start__' || node === '__end__') {
+                    pill.style.background = '#e0e7ff';
+                    pill.style.color = '#4338ca';
+                } else if (node === 'call_model') {
+                    pill.style.background = '#dbeafe';
+                    pill.style.color = '#1d4ed8';
+                } else if (node === 'collect_dry_run') {
+                    pill.style.background = '#fef3c7';
+                    pill.style.color = '#92400e';
+                } else if (node === 'execute_or_hold_tools') {
+                    pill.style.background = '#d1fae5';
+                    pill.style.color = '#065f46';
+                } else if (node === 'format_output') {
+                    pill.style.background = '#ede9fe';
+                    pill.style.color = '#5b21b6';
+                } else {
+                    pill.style.background = '#f1f5f9';
+                    pill.style.color = '#475569';
+                }
+                pathDiv.appendChild(pill);
+
+                // Arrow between nodes
+                if (i < path.length - 1) {
+                    const arrow = document.createElement('span');
+                    arrow.textContent = '\u2192';
+                    arrow.style.cssText = 'color:#94a3b8;font-size:0.8rem;';
+                    pathDiv.appendChild(arrow);
+                }
+            });
+
+            chatbox.appendChild(pathDiv);
             chatbox.scrollTop = chatbox.scrollHeight;
         }
 
@@ -905,7 +997,7 @@
             showSendButton();
 
             if (data.history) conversationHistory = data.history;
-            
+
             if (data.status === 'pending') {
                 appendMessage('agent', data.response || 'I need to perform some actions:', true, data.pending_tools);
             } else if (data.status === 'dry_run') {
@@ -916,6 +1008,11 @@
                 appendMessage('agent', `⚠️ ${data.error || data.message}`);
             }
 
+            // Show the LangGraph execution path
+            if (data.execution_path && data.execution_path.length > 0) {
+                appendExecutionPath(data.execution_path);
+            }
+
             // Auto-save chat session (debounced, fire-and-forget)
             scheduleAutoSave();
         }
@@ -924,10 +1021,56 @@
             e.preventDefault();
             const message = messageInput.value.trim();
             if (!message) return;
-            
+
             appendMessage('user', message);
             messageInput.value = '';
             messageInput.style.height = 'auto';
+
+            // Handle /graph command locally - renders the LangGraph visualization
+            if (message.toLowerCase() === '/graph') {
+                showTypingIndicator();
+                try {
+                    const res = await fetch('/api/graph/');
+                    const data = await res.json();
+                    hideTypingIndicator();
+                    if (data.mermaid) {
+                        appendMermaidGraph(data.mermaid, data.description || '');
+                    } else {
+                        appendMessage('agent', data.error || 'Could not load graph.');
+                    }
+                } catch (err) {
+                    hideTypingIndicator();
+                    appendMessage('agent', 'Failed to load graph.');
+                    console.error(err);
+                }
+                return;
+            }
+
+            // Handle /test-error command - simulates a failure at a graph node
+            if (message.toLowerCase().startsWith('/test-error')) {
+                const parts = message.trim().split(/\s+/);
+                const node = parts[1] || 'call_model';
+                showTypingIndicator();
+                try {
+                    const res = await fetch('/api/test-error/', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ node: node })
+                    });
+                    const data = await res.json();
+                    hideTypingIndicator();
+                    appendMessage('agent', data.message || data.error || 'Test error armed.');
+                    if (!data.error) {
+                        appendMessage('agent', 'Now send any message to trigger the simulated failure.');
+                    }
+                } catch (err) {
+                    hideTypingIndicator();
+                    appendMessage('agent', 'Failed to set test error.');
+                    console.error(err);
+                }
+                return;
+            }
+
             showTypingIndicator();
             showStopButton();
 
