@@ -329,6 +329,43 @@ def chat_session_detail_api(request, session_id):
         return JsonResponse({'error': str(e)}, status=500)
 
 
+def agent_graph_api(request):
+    """Return the LangGraph Mermaid diagram for visualization."""
+    if request.method != 'GET':
+        return JsonResponse({'error': 'Invalid request'}, status=405)
+    try:
+        graph = agent._graph.get_graph()
+        mermaid_code = graph.draw_mermaid()
+        description = (
+            "**LangGraph Agent Execution Graph**\n\n"
+            "This is the state machine that powers every chat interaction:\n\n"
+            "- **call_model** - Sends your message + tools to ChatOpenAI\n"
+            "- **collect_dry_run** - Collects tool calls into a plan for your approval (fresh messages)\n"
+            "- **execute_or_hold_tools** - Executes low-risk tools, holds high-risk for approval (after plan approved)\n"
+            "- **format_output** - Returns the final text response when no tools are needed\n\n"
+            "Dashed lines (- - -) are conditional edges. Solid lines are always-taken edges."
+        )
+        return JsonResponse({'mermaid': mermaid_code, 'description': description})
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def test_error_api(request):
+    """Simulate a failure at a specific LangGraph node for testing."""
+    try:
+        data = json.loads(request.body)
+        node = data.get('node', 'call_model')
+        valid_nodes = ['call_model', 'collect_dry_run', 'execute_or_hold_tools', 'format_output']
+        if node not in valid_nodes:
+            return JsonResponse({'error': f'Invalid node. Choose from: {valid_nodes}'}, status=400)
+        agent._test_fail_node = node
+        return JsonResponse({'message': f'Next request will simulate a failure at "{node}".'})
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+
 def serve_logo(request):
     """Serve the Javelin logo from the project root."""
     logo_path = os.path.join(settings.BASE_DIR, 'javelin.png')
