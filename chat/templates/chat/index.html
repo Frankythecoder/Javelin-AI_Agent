@@ -1013,6 +1013,16 @@
                 appendExecutionPath(data.execution_path);
             }
 
+            // Shut down server if requested (quit/exit)
+            if (data.shutdown) {
+                setTimeout(async () => {
+                    try {
+                        await fetch('/api/shutdown/', { method: 'POST' });
+                    } catch (e) { /* server is shutting down */ }
+                }, 1500);
+                return;
+            }
+
             // Auto-save chat session (debounced, fire-and-forget)
             scheduleAutoSave();
         }
