@@ -1,4 +1,6 @@
 import os
+import sys
+import signal
 import json
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
@@ -173,6 +175,8 @@ def chat_api(request):
 
 
             response_data = agent.chat_once(conversation_history=history, message=user_message)
+            if user_message.lower().strip() in ['quit', 'exit', 'q']:
+                response_data['shutdown'] = True
             return JsonResponse(response_data)
 
         except json.JSONDecodeError:
@@ -364,6 +368,17 @@ def test_error_api(request):
         return JsonResponse({'message': f'Next request will simulate a failure at "{node}".'})
     except json.JSONDecodeError:
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+
+@csrf_exempt
+@require_POST
+def shutdown_server(request):
+    """Shut down the Django development server."""
+    def _shutdown():
+        os.kill(os.getpid(), signal.SIGTERM)
+    import threading
+    threading.Timer(1.0, _shutdown).start()
+    return JsonResponse({'message': 'Server shutting down...'})
 
 
 def serve_logo(request):
