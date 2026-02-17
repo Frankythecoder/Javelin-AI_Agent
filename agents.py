@@ -2595,6 +2595,12 @@ def _parse_markdown_blocks(text):
     while i < len(lines):
         line = lines[i]
 
+        # Page break marker
+        if line.strip() in ('<!-- PAGE_BREAK -->', '<!--PAGE_BREAK-->', '---PAGE_BREAK---'):
+            blocks.append({'type': 'page_break'})
+            i += 1
+            continue
+
         # Code block (fenced)
         if line.strip().startswith('```'):
             code_lines = []
@@ -2680,7 +2686,7 @@ def _md_inline_to_html(text):
 
 # ─── Document Creation Functions ─────────────────────────────────────
 
-def create_pdf(filename: str, content: str = "") -> str:
+def create_pdf(filename: str, content: str = "", pages: int = None) -> str:
     """Create a professionally styled PDF from markdown content."""
     try:
         if not content.strip():
@@ -2810,6 +2816,9 @@ def create_pdf(filename: str, content: str = "") -> str:
                 code_text = block['text'].replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br/>')
                 flowables.append(Paragraph(code_text, styles['CodeBlock']))
 
+            elif btype == 'page_break':
+                flowables.append(PageBreak())
+
             elif btype == 'hr':
                 flowables.append(Spacer(1, 4))
                 flowables.append(HRFlowable(width="100%", thickness=1, color=rl_colors.HexColor('#bdbdbd'), spaceAfter=8))
@@ -2818,12 +2827,26 @@ def create_pdf(filename: str, content: str = "") -> str:
             return "Error: No content blocks parsed from the provided markdown."
 
         doc.build(flowables)
-        return f"Successfully created PDF: {filename}"
+
+        # Verify page count if pages was specified
+        page_info = ""
+        if pages:
+            try:
+                import fitz
+                verify_doc = fitz.open(filename)
+                actual_pages = len(verify_doc)
+                verify_doc.close()
+                if actual_pages != pages:
+                    page_info = f" (Note: Document has {actual_pages} pages, {pages} were requested)"
+            except Exception:
+                pass
+
+        return f"Successfully created PDF: {filename}{page_info}"
     except Exception as e:
         return f"Error creating PDF: {str(e)}"
 
 
-def create_docx(filename: str, content: str = "") -> str:
+def create_docx(filename: str, content: str = "", pages: int = None) -> str:
     """Create a professionally styled DOCX from markdown content."""
     try:
         if not content.strip():
@@ -2945,6 +2968,9 @@ def create_docx(filename: str, content: str = "") -> str:
                 })
                 pPr.append(shd)
 
+            elif btype == 'page_break':
+                doc.add_page_break()
+
             elif btype == 'hr':
                 p = doc.add_paragraph()
                 p.paragraph_format.space_before = Pt(4)
@@ -3046,7 +3072,7 @@ def create_excel(filename: str, content: str = "", data: list = None, title: str
         return f"Error creating XLSX: {str(e)}"
 
 
-def create_pptx(filename: str, content: str = "") -> str:
+def create_pptx(filename: str, content: str = "", pages: int = None) -> str:
     """Create a professionally styled PPTX from markdown content.
     Each heading (# or ##) becomes a new slide title, with content below as bullets."""
     try:
@@ -3209,7 +3235,12 @@ CREATE_PDF_DEFINITION = ToolDefinition(
         "You MUST generate the COMPLETE document content in markdown format and pass it as the 'content' parameter. "
         "Use full markdown: # headings, ## subheadings, **bold**, *italic*, bullet lists (- item), "
         "numbered lists (1. item), tables (| col1 | col2 |), code blocks (```), and --- for horizontal rules. "
-        "Write thorough, detailed content - the more content you provide, the better the document."
+        "Write thorough, detailed content - the more content you provide, the better the document.\n\n"
+        "PAGE COUNT CONTROL: If the user requests a specific number of pages, you MUST set the 'pages' parameter "
+        "AND insert <!-- PAGE_BREAK --> markers in your content to separate each page. "
+        "For N pages, include exactly N-1 page break markers. Each section between markers becomes one page. "
+        "Write approximately 300-400 words of content per page to fill each page appropriately. "
+        "Example for 3 pages: content for page 1 <!-- PAGE_BREAK --> content for page 2 <!-- PAGE_BREAK --> content for page 3"
     ),
     parameters={
         "type": "object",
@@ -3220,12 +3251,16 @@ CREATE_PDF_DEFINITION = ToolDefinition(
             },
             "content": {
                 "type": "string",
-                "description": "The FULL document content in markdown format. Include headings, paragraphs, lists, tables, etc."
+                "description": "The FULL document content in markdown format. Include headings, paragraphs, lists, tables, etc. Use <!-- PAGE_BREAK --> to force page breaks."
+            },
+            "pages": {
+                "type": "integer",
+                "description": "The desired number of pages. When set, you MUST include exactly (pages - 1) <!-- PAGE_BREAK --> markers in the content to control pagination."
             }
         },
         "required": ["filename", "content"]
     },
-    function=lambda args: create_pdf(args.get('filename'), args.get('content', ''))
+    function=lambda args: create_pdf(args.get('filename'), args.get('content', ''), args.get('pages'))
 )
 
 CREATE_DOCX_DEFINITION = ToolDefinition(
@@ -3235,7 +3270,12 @@ CREATE_DOCX_DEFINITION = ToolDefinition(
         "You MUST generate the COMPLETE document content in markdown format and pass it as the 'content' parameter. "
         "Use full markdown: # headings, ## subheadings, **bold**, *italic*, bullet lists (- item), "
         "numbered lists (1. item), tables (| col1 | col2 |), code blocks (```), and --- for horizontal rules. "
-        "Write thorough, detailed content - the more content you provide, the better the document."
+        "Write thorough, detailed content - the more content you provide, the better the document.\n\n"
+        "PAGE COUNT CONTROL: If the user requests a specific number of pages, you MUST set the 'pages' parameter "
+        "AND insert <!-- PAGE_BREAK --> markers in your content to separate each page. "
+        "For N pages, include exactly N-1 page break markers. Each section between markers becomes one page. "
+        "Write approximately 350-450 words of content per page to fill each page appropriately. "
+        "Example for 3 pages: content for page 1 <!-- PAGE_BREAK --> content for page 2 <!-- PAGE_BREAK --> content for page 3"
     ),
     parameters={
         "type": "object",
@@ -3246,12 +3286,16 @@ CREATE_DOCX_DEFINITION = ToolDefinition(
             },
             "content": {
                 "type": "string",
-                "description": "The FULL document content in markdown format. Include headings, paragraphs, lists, tables, etc."
+                "description": "The FULL document content in markdown format. Include headings, paragraphs, lists, tables, etc. Use <!-- PAGE_BREAK --> to force page breaks."
+            },
+            "pages": {
+                "type": "integer",
+                "description": "The desired number of pages. When set, you MUST include exactly (pages - 1) <!-- PAGE_BREAK --> markers in the content to control pagination."
             }
         },
         "required": ["filename", "content"]
     },
-    function=lambda args: create_docx(args.get('filename'), args.get('content', ''))
+    function=lambda args: create_docx(args.get('filename'), args.get('content', ''), args.get('pages'))
 )
 
 CREATE_EXCEL_DEFINITION = ToolDefinition(
@@ -3295,7 +3339,11 @@ CREATE_PPTX_DEFINITION = ToolDefinition(
         "Each # or ## heading starts a NEW SLIDE with that heading as the slide title. "
         "The first # heading becomes the title slide. Content under each heading becomes bullet points on that slide. "
         "Use bullet lists (- item), numbered lists (1. item), and paragraphs for slide content. "
-        "Write concise but informative bullet points for each slide."
+        "Write concise but informative bullet points for each slide.\n\n"
+        "SLIDE COUNT CONTROL: If the user requests a specific number of slides/pages, you MUST set the 'pages' parameter "
+        "AND ensure your content contains EXACTLY that many # or ## headings (including the title slide). "
+        "For example, for 5 slides: use 1 title heading (# Title) + 4 content headings (## Slide Title). "
+        "Count your headings carefully to match the requested number exactly."
     ),
     parameters={
         "type": "object",
@@ -3307,11 +3355,15 @@ CREATE_PPTX_DEFINITION = ToolDefinition(
             "content": {
                 "type": "string",
                 "description": "The FULL presentation content in markdown format. Each # or ## heading starts a new slide."
+            },
+            "pages": {
+                "type": "integer",
+                "description": "The desired number of slides. You MUST include EXACTLY this many # or ## headings in your content."
             }
         },
         "required": ["filename", "content"]
     },
-    function=lambda args: create_pptx(args.get('filename'), args.get('content', ''))
+    function=lambda args: create_pptx(args.get('filename'), args.get('content', ''), args.get('pages'))
 )
 
 
@@ -3995,6 +4047,10 @@ class Agent:
         12. ALWAYS report the actual output from tool executions. Never hallucinate or skip reporting the execution results.
         13. If the user denies a tool call or action, explicitly state in your response that you could not finish the task because the user denied it.
         14. For ALL GitHub operations (creating branches, committing files, raising pull requests), use ONLY the github_create_branch, github_commit_file, github_commit_local_file, and github_create_pr MCP tools. NEVER use run_code with git commands for GitHub operations. The workflow is: Step 1: github_create_branch -> Step 2: github_commit_file or github_commit_local_file -> Step 3: github_create_pr.
+        15. DOCUMENT PAGE COUNT: When the user requests a document with a specific number of pages or slides, you MUST honor that request exactly:
+           - For PDF/DOCX: Set the 'pages' parameter AND insert exactly (N-1) <!-- PAGE_BREAK --> markers in your content for N pages. Write 300-450 words per page to fill each page. Each <!-- PAGE_BREAK --> marker MUST be on its own line.
+           - For PPTX: Set the 'pages' parameter AND include EXACTLY N headings (# or ##) for N slides. Count your headings before submitting.
+           - NEVER create fewer or more pages/slides than requested. Double-check your content structure before calling the tool.
         """
 
     # ----------------------------------------------------------------
