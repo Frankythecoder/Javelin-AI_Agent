@@ -22,7 +22,7 @@ class ChatSession(models.Model):
 
 class Booking(models.Model):
     booking_ref = models.CharField(max_length=50, unique=True)
-    booking_type = models.CharField(max_length=10)  # "flight" or "hotel"
+    booking_type = models.CharField(max_length=10)  # "flight"
     duffel_order_id = models.CharField(max_length=100, blank=True, default='')
     passenger_name = models.CharField(max_length=200)
     passenger_email = models.EmailField()
