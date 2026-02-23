@@ -10,7 +10,7 @@ A standalone Textual-based terminal interface that drives the existing Agent cla
 ## Architecture
 
 - **Approach:** Direct LangGraph integration (no HTTP, no Django server needed)
-- **Entry point:** `tui.py` → installed as `agent` CLI command via `pyproject.toml`
+- **Entry point:** `tui.py` → installed as `javelin` CLI command via `pyproject.toml`
 - **Django bootstrap:** TUI calls `django.setup()` at startup for ToolLog ORM access
 - **No existing files modified**
 
@@ -101,7 +101,7 @@ version = "0.1.0"
 dependencies = ["textual>=0.50.0"]
 
 [project.scripts]
-agent = "tui:main"
+javelin = "tui:main"
 ```
 
 ## New Files
