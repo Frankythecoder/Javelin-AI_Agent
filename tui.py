@@ -97,6 +97,15 @@ def load_session(session_id):
     return None
 
 
+def delete_session(session_id):
+    """Delete a session JSON file. Returns True if deleted."""
+    path = SESSIONS_DIR / f"{session_id}.json"
+    if path.exists():
+        path.unlink()
+        return True
+    return False
+
+
 def list_sessions():
     """Return list of saved sessions sorted by most recent."""
     _ensure_sessions_dir()
@@ -261,6 +270,29 @@ class AgentTUI(App):
                 log.write("[yellow]Load cancelled.[/]")
             return
 
+        # Handle session delete selection
+        if self._approval_type == "delete_session":
+            try:
+                choice = int(text) - 1
+                sessions = self._pending_plan  # stored session list
+                if 0 <= choice < len(sessions):
+                    self._awaiting_approval = False
+                    title = sessions[choice]["title"]
+                    if delete_session(sessions[choice]["id"]):
+                        log = self.query_one("#chat-log", RichLog)
+                        log.write(f"[green]Deleted session: {title}[/]")
+                    else:
+                        log = self.query_one("#chat-log", RichLog)
+                        log.write(f"[red]Session not found: {title}[/]")
+                else:
+                    log = self.query_one("#chat-log", RichLog)
+                    log.write("[red]Invalid selection.[/]")
+            except ValueError:
+                self._awaiting_approval = False
+                log = self.query_one("#chat-log", RichLog)
+                log.write("[yellow]Delete cancelled.[/]")
+            return
+
         lower = text.lower()
         if lower in ("y", "yes"):
             self._approve()
@@ -284,6 +316,7 @@ class AgentTUI(App):
                 "  /help           Show this help message\n"
                 "  /save [title]   Save current session\n"
                 "  /load           List and load a session\n"
+                "  /delete         Delete a saved session\n"
                 "  /sessions       List saved sessions\n"
                 "  /clear          Clear conversation history\n"
                 "  /cwd            Show current working directory\n"
@@ -309,6 +342,18 @@ class AgentTUI(App):
             # Store session list for next input
             self._awaiting_approval = True
             self._approval_type = "load_session"
+            self._pending_plan = sessions
+        elif cmd == "/delete":
+            sessions = list_sessions()
+            if not sessions:
+                log.write("[yellow]No saved sessions found.[/]")
+                return
+            log.write("[bold]Saved sessions:[/]")
+            for i, s in enumerate(sessions, 1):
+                log.write(f"  {i}. {s['title']}  ({s['updated_at'][:10]})")
+            log.write("[dim]Type the session number to delete.[/]")
+            self._awaiting_approval = True
+            self._approval_type = "delete_session"
             self._pending_plan = sessions
         elif cmd == "/sessions":
             sessions = list_sessions()
