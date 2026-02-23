@@ -279,6 +279,13 @@ class AgentTUI(App):
             self._handle_approval_input(text)
             return
 
+        # Handle quit
+        if text.lower() == "quit":
+            log = self.query_one("#chat-log", RichLog)
+            log.write("\n[bold gold1]Goodbye! Thanks for using Javelin.[/]")
+            self.set_timer(0.5, lambda: self.exit())
+            return
+
         # Handle slash commands
         if text.startswith("/"):
             self._handle_slash_command(text)
