@@ -178,7 +178,7 @@ class AgentTUI(App):
     """
 
     BINDINGS = [
-        Binding("ctrl+d", "quit", "Exit", show=True),
+        Binding("ctrl+d", "quit", "Exit", show=True, priority=True),
         Binding("ctrl+c", "stop_agent", "Stop", show=True),
         Binding("escape", "cancel_input", "Cancel", show=False),
     ]
