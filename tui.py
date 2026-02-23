@@ -491,13 +491,16 @@ class AgentTUI(App):
             self._show_pending_tools(result)
         elif status == "success":
             log.write(f"\n[bold gold1]Agent:[/] {response}")
+            self._show_execution_path(result)
             self._auto_save()
             self._update_header("Ready")
         elif status == "error":
             log.write(f"\n[bold red]Error:[/] {response}")
+            self._show_execution_path(result)
             self._update_header("Error")
         elif status == "stopped":
             log.write(f"\n[bold red]{response}[/]")
+            self._show_execution_path(result)
             self._update_header("Stopped")
 
     def _show_dry_run(self, result):
@@ -595,13 +598,16 @@ class AgentTUI(App):
             self._show_pending_tools(result)
         elif status == "success":
             log.write(f"\n[bold gold1]Agent:[/] {response}")
+            self._show_execution_path(result)
             self._auto_save()
             self._update_header("Ready")
         elif status == "error":
             log.write(f"\n[bold red]Error:[/] {response}")
+            self._show_execution_path(result)
             self._update_header("Error")
         elif status == "stopped":
             log.write(f"\n[bold red]{response}[/]")
+            self._show_execution_path(result)
             self._update_header("Stopped")
 
     @work(thread=True)
@@ -648,6 +654,22 @@ class AgentTUI(App):
         self._update_header("Ready")
 
     # ── Helpers ───────────────────────────────────────────────────
+
+    def _show_execution_path(self, result):
+        """Display the LangGraph execution path trace."""
+        path = result.get("execution_path", [])
+        if not path:
+            return
+        log = self.query_one("#chat-log", RichLog)
+        parts = []
+        for node in path:
+            if "\u2717" in node:  # ✗ failure marker
+                parts.append(f"[bold red]{node}[/]")
+            elif node in ("__start__", "__end__"):
+                parts.append(f"[dim]{node}[/]")
+            else:
+                parts.append(f"[green]{node}[/]")
+        log.write(f"[dim]Graph:[/] {' → '.join(parts)}")
 
     def _update_header(self, status_text):
         header = self.query_one("#header-bar", Static)
