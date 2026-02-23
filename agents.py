@@ -670,11 +670,10 @@ def run_code_tool(args: Dict[str, Any]) -> str:
         print(f"\033[92mExecuting Command:\033[0m {command}")
 
         result = subprocess.run(
-            command, 
+            command,
             shell=True,
-            capture_output=True, 
-            text=True, 
-            timeout=30
+            capture_output=True,
+            text=True
         )
         
         stdout = result.stdout
@@ -689,7 +688,7 @@ def run_code_tool(args: Dict[str, Any]) -> str:
         output = f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}"
         return output
     except subprocess.TimeoutExpired:
-        return "Error: Command timed out after 30 seconds"
+        return "Error: Command timed out."
     except Exception as e:
         return f"Error: {str(e)}"
 
@@ -2094,7 +2093,7 @@ RENAME_FILE_DEFINITION = ToolDefinition(
 
 RUN_CODE_DEFINITION = ToolDefinition(
     name="run_code",
-    description="Execute a shell command or run a script (e.g., 'python script.py'). Use this to test code or perform system checks.",
+    description="Execute a shell command or run a script. Supports Python, C (gcc), C++ (g++), Java (javac), and any other shell command. Use this to compile, run, test code, or perform system checks.",
     parameters={
         "type": "object",
         "properties": {
@@ -2112,7 +2111,7 @@ RUN_CODE_DEFINITION = ToolDefinition(
 
 CHECK_SYNTAX_DEFINITION = ToolDefinition(
     name="check_syntax",
-    description="Check the syntax of a code file (supports .py and .java).",
+    description="Check the syntax of a code file (supports .py, .java, .c, .cpp, .rs, .js, .ts, .go, .sql).",
     parameters={
         "type": "object",
         "properties": {
@@ -2148,7 +2147,7 @@ RUN_TESTS_DEFINITION = ToolDefinition(
 
 LINT_CODE_DEFINITION = ToolDefinition(
     name="lint_code",
-    description="Run static analysis (linting) on a code file (supports .py and .java).",
+    description="Run static analysis (linting) on a code file (supports .py, .java, .c, .cpp, .rs, .js, .ts, .go, .sql).",
     parameters={
         "type": "object",
         "properties": {
