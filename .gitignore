@@ -13,6 +13,9 @@ __pycache__/
 __init__.py
 **/__init__.py
 
+# Build artifacts
+*.egg-info/
+
 # SQLite database
 db.sqlite3
 test_imap.py
