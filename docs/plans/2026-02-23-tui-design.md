@@ -88,9 +88,9 @@ agents.py (unchanged)
 ## CLI Entry Point
 
 ```bash
-agent                          # Launch in current directory
-agent --dir ~/projects/myapp   # Launch in specific directory
-agent --load                   # Launch and show session picker
+javelin                          # Launch in current directory
+javelin --dir ~/projects/myapp   # Launch in specific directory
+javelin --load                   # Launch and show session picker
 ```
 
 **`pyproject.toml`:**

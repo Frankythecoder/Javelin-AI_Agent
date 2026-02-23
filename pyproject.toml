@@ -15,4 +15,4 @@ dependencies = [
 py-modules = ["tui"]
 
 [project.scripts]
-agent = "tui:main"
+javelin = "tui:main"
