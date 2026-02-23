@@ -133,7 +133,7 @@ def _list_directory_files(directory=None):
     """Return list of files/dirs in directory, matching web API skip list."""
     cwd = directory or os.getcwd()
     entries = []
-    for dirpath, dirnames, filenames in os.walk(cwd):
+    for dirpath, dirnames, filenames in os.walk(cwd, onerror=lambda e: None):
         dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
         rel_dir = os.path.relpath(dirpath, cwd)
         for fname in filenames:
@@ -690,8 +690,7 @@ class AgentTUI(App):
 
     def _show_file_autocomplete(self, query):
         """Filter file list and populate the dropdown."""
-        if not self._file_list_cache:
-            self._file_list_cache = _list_directory_files(self.working_dir)
+        self._file_list_cache = _list_directory_files(self.working_dir)
 
         option_list = self.query_one("#file-autocomplete", OptionList)
         option_list.clear_options()
