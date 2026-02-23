@@ -85,7 +85,6 @@ DUFFEL_API_BASE = "https://api.duffel.com"
 
 # Caches for cross-tool state (search -> book)
 _duffel_offer_cache = {}   # offer_id -> {"passenger_ids": [...], "total_amount": str, "total_currency": str, "expires_at": str}
-_duffel_stays_cache = {}   # rate_id  -> {"search_result_id": str, "accommodation_name": str, ...}
 
 
 def _duffel_headers():
@@ -671,11 +670,10 @@ def run_code_tool(args: Dict[str, Any]) -> str:
         print(f"\033[92mExecuting Command:\033[0m {command}")
 
         result = subprocess.run(
-            command, 
+            command,
             shell=True,
-            capture_output=True, 
-            text=True, 
-            timeout=30
+            capture_output=True,
+            text=True
         )
         
         stdout = result.stdout
@@ -690,7 +688,7 @@ def run_code_tool(args: Dict[str, Any]) -> str:
         output = f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}"
         return output
     except subprocess.TimeoutExpired:
-        return "Error: Command timed out after 30 seconds"
+        return "Error: Command timed out."
     except Exception as e:
         return f"Error: {str(e)}"
 
@@ -1477,311 +1475,6 @@ PLAYWRIGHT_MCP_DEFINITION = ToolDefinition(
 
 # ─── Travel Search Tools ─────────────────────────────────────────────
 
-def _launch_travel_browser():
-    """
-    Launch a headless Chromium browser via sync_playwright with
-    anti-detection settings suitable for interacting with Google
-    Flights / Hotels.
-
-    Returns (playwright_instance, browser, context, page).
-    The caller MUST close browser and stop playwright when done.
-    """
-    from playwright.sync_api import sync_playwright
-
-    pw = sync_playwright().start()
-
-    browser = pw.chromium.launch(
-        headless=True,
-        args=[
-            "--disable-blink-features=AutomationControlled",
-            "--no-sandbox",
-        ],
-    )
-
-    context = browser.new_context(
-        user_agent=(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        ),
-        viewport={"width": 1920, "height": 1080},
-        locale="en-US",
-        timezone_id="America/New_York",
-    )
-
-    # Block heavy resources to speed up loading
-    context.route(
-        re.compile(r"\.(png|jpg|jpeg|gif|webp|svg|woff2?|ttf|otf|mp4|webm)$", re.I),
-        lambda route: route.abort(),
-    )
-
-    page = context.new_page()
-
-    # Remove the webdriver navigator flag that sites use to detect automation
-    page.add_init_script("""
-        Object.defineProperty(navigator, 'webdriver', { get: () => false });
-    """)
-
-    return pw, browser, context, page
-
-
-def _dismiss_consent_banners(page):
-    """Try to dismiss Google consent / cookie banners."""
-    for sel in [
-        "button:has-text('Accept all')",
-        "button:has-text('Accept')",
-        "button:has-text('I agree')",
-        "button:has-text('Reject all')",
-    ]:
-        try:
-            btn = page.query_selector(sel)
-            if btn and btn.is_visible():
-                btn.click()
-                page.wait_for_timeout(1000)
-                break
-        except Exception:
-            continue
-
-
-def _parse_flights_from_text(body, origin, destination, dep_date):
-    """
-    Parse raw body text from Google Flights into structured flight dicts.
-    Anchors on price lines ($XXX) and walks backwards to extract
-    airline, times, duration, stops, and route codes.
-    """
-    def _to_24h(t):
-        if not t:
-            return ""
-        t = t.strip().upper()
-        m = re.match(r"(\d{1,2}):(\d{2})\s*(AM|PM)", t)
-        if not m:
-            return ""
-        h, mi, ap = int(m[1]), int(m[2]), m[3]
-        if ap == "PM" and h != 12:
-            h += 12
-        if ap == "AM" and h == 12:
-            h = 0
-        return f"{h:02d}:{mi:02d}"
-
-    def _dur_to_display(text):
-        m = re.search(r"(\d+)\s*h(?:r|our)?s?\s*(?:(\d+)\s*m(?:in)?)?", text, re.I)
-        if not m:
-            m2 = re.search(r"(\d+)\s*m(?:in)?", text, re.I)
-            if m2:
-                total = int(m2[1])
-                return f"{total // 60}h {total % 60}m"
-            return ""
-        h = m[1]
-        mi = m[2] or "0"
-        return f"{h}h {mi}m"
-
-    lines = [ln.strip() for ln in body.split("\n") if ln.strip()]
-    flights = []
-    i = 0
-
-    while i < len(lines):
-        price_match = re.match(r"^\$[\d,]+$", lines[i])
-        if not price_match:
-            i += 1
-            continue
-
-        price = lines[i].replace("$", "").replace(",", "")
-        window = lines[max(0, i - 12): i]
-        window_text = "\n".join(window)
-
-        # Time pattern: "5:00 AM – 1:30 PM"
-        time_m = re.search(
-            r"(\d{1,2}:\d{2}\s*[AP]M)\s*[\u2013\-\u2014]+\s*(\d{1,2}:\d{2}\s*[AP]M)",
-            window_text, re.I
-        )
-        dep_time = _to_24h(time_m[1]) if time_m else ""
-        arr_time = _to_24h(time_m[2]) if time_m else ""
-
-        duration = _dur_to_display(window_text)
-
-        nonstop = bool(re.search(r"non\s*-?\s*stop", window_text, re.I))
-        stops_m = re.search(r"(\d+)\s+stop", window_text, re.I)
-        stops = 0 if nonstop else (int(stops_m[1]) if stops_m else 0)
-
-        airline = "Airline"
-        for ln in window:
-            if (
-                len(ln) > 2
-                and len(ln) < 50
-                and not re.search(r"[\$\d]{2}", ln)
-                and "\u2013" not in ln and "-" not in ln
-                and "stop" not in ln.lower()
-                and "hr" not in ln.lower()
-                and "min" not in ln.lower()
-                and "AM" not in ln
-                and "PM" not in ln
-            ):
-                airline = ln
-                break
-
-        route_m = re.search(r"([A-Z]{3})\s*[\u2013\-\u2014]\s*([A-Z]{3})", window_text)
-        dep_apt = route_m[1] if route_m else origin.upper()
-        arr_apt = route_m[2] if route_m else destination.upper()
-
-        flights.append({
-            'price': price,
-            'currency': 'USD',
-            'airline': airline,
-            'departure_time': dep_time,
-            'arrival_time': arr_time,
-            'departure_airport': dep_apt,
-            'arrival_airport': arr_apt,
-            'duration': duration,
-            'stops': stops,
-        })
-
-        i += 1
-
-    # De-duplicate by price + airline
-    seen = set()
-    unique = []
-    for f in flights:
-        key = (f["price"], f["airline"])
-        if key not in seen:
-            seen.add(key)
-            unique.append(f)
-
-    return unique
-
-
-
-# Currency symbols and codes that Google Hotels may use depending on locale
-_CURRENCY_SYMBOLS = {
-    '$': 'USD', '\u20b9': 'INR', '\u20ac': 'EUR', '\u00a3': 'GBP',
-    '\u00a5': 'JPY', '\u20a9': 'KRW', 'R$': 'BRL', 'A$': 'AUD',
-    'C$': 'CAD', 'HK$': 'HKD', 'S$': 'SGD', '\u20b1': 'PHP',
-    '\u20ba': 'TRY', '\u20bd': 'RUB', 'kr': 'SEK', 'zł': 'PLN',
-    '\u20aa': 'ILS', '\u0e3f': 'THB', 'RM': 'MYR', 'Rp': 'IDR',
-}
-
-# Regex pattern that matches any common currency symbol followed by a number
-_PRICE_PATTERN = re.compile(
-    r'(?:R\$|A\$|C\$|HK\$|S\$|[$\u20b9\u20ac\u00a3\u00a5\u20a9\u20b1\u20ba\u20bd\u20aa\u0e3f]|kr|z[łl]|RM|Rp)\s?(\d[\d,]*)'
-)
-
-
-def _detect_currency(body):
-    """Detect the currency used on the page by finding the most common currency symbol."""
-    counts = {}
-    for sym in _CURRENCY_SYMBOLS:
-        c = body.count(sym)
-        if c > 0:
-            counts[sym] = c
-    if not counts:
-        return '$', 'USD'
-    best_sym = max(counts, key=counts.get)
-    return best_sym, _CURRENCY_SYMBOLS[best_sym]
-
-
-def _parse_hotels_from_text(body, city_code, check_in, check_out):
-    """
-    Parse raw body text from Google Hotels into structured hotel dicts.
-    Handles multiple currencies ($, ₹, €, £, ¥, etc.) and price formats
-    like "$189", "₹7,665", "€150/night", "From $189", etc.
-    """
-    currency_sym, currency_code = _detect_currency(body)
-
-    lines = [ln.strip() for ln in body.split("\n") if ln.strip()]
-    hotels = []
-    i = 0
-
-    while i < len(lines):
-        # Match prices with any currency symbol
-        price_m = _PRICE_PATTERN.search(lines[i])
-        if not price_m:
-            i += 1
-            continue
-
-        # Skip lines that are clearly not hotel prices
-        line_lower = lines[i].lower()
-        if any(skip in line_lower for skip in ['tax', 'fee', 'off', 'save', 'was ', 'cancel']):
-            i += 1
-            continue
-
-        price = price_m.group(1).replace(",", "")
-
-        # Skip very small prices (likely fees, not hotel rates)
-        try:
-            if int(price) < 20:
-                i += 1
-                continue
-        except ValueError:
-            i += 1
-            continue
-
-        window = lines[max(0, i - 10): i]
-        window_text = "\n".join(window)
-
-        # Hotel name - find a line that looks like an actual hotel name,
-        # skipping amenity/feature lines that Google shows between name and price
-        _amenity_keywords = {
-            'wi-fi', 'wifi', 'breakfast', 'parking', 'pool', 'spa',
-            'gym', 'fitness', 'restaurant', 'bar', 'lounge',
-            'kid-friendly', 'kid friendly', 'pet-friendly', 'pet friendly',
-            'free cancellation', 'free wi-fi', 'free wifi', 'free parking',
-            'free breakfast', 'air conditioning', 'air-conditioning',
-            'kitchen', 'laundry', 'shuttle', 'concierge', 'room service',
-            'balcony', 'terrace', 'garden', 'beach', 'rooftop',
-            'accessible', 'wheelchair', 'no smoking', 'non-smoking',
-            'ev charger', 'ev charging', 'outdoor', 'indoor',
-            'hot tub', 'sauna', 'jacuzzi', 'minibar',
-            'check-in', 'check-out', 'checkout', 'checkin',
-        }
-        name = "Hotel"
-        for ln in window:
-            ln_lower = ln.lower().strip()
-            # Skip amenity/feature lines
-            if any(kw in ln_lower for kw in _amenity_keywords):
-                continue
-            if (
-                len(ln) > 3
-                and len(ln) < 80
-                and not re.match(r"^[\d\.\$\(\),\s]+$", ln)
-                and not _PRICE_PATTERN.search(ln)
-                and "star" not in ln_lower
-                and "rating" not in ln_lower
-                and "review" not in ln_lower
-                and "night" not in ln_lower
-                and "price" not in ln_lower
-                and "deal" not in ln_lower
-                and "sponsored" not in ln_lower
-                and "amenit" not in ln_lower
-                and "facilit" not in ln_lower
-                and not re.match(r"^\d[\.\d]*$", ln)
-                and not re.match(r"^\([\d,]+\)$", ln)
-            ):
-                name = ln
-                break
-
-        # Star rating
-        star_m = re.search(r"(\d)[- ]star", window_text, re.I)
-        rating = star_m[1] if star_m else ""
-
-        hotels.append({
-            'name': name,
-            'rating': rating,
-            'price': price,
-            'currency': currency_code,
-        })
-
-        i += 1
-
-    # De-duplicate by name
-    seen = set()
-    unique = []
-    for h in hotels:
-        if h["name"] not in seen:
-            seen.add(h["name"])
-            unique.append(h)
-
-    return unique
-
-
 def search_flights_tool(args: Dict[str, Any]) -> str:
     """Search for flights using the Duffel REST API."""
 
@@ -1927,311 +1620,10 @@ SEARCH_FLIGHTS_DEFINITION = ToolDefinition(
 )
 
 
-
-# Common IATA city codes to full city names for Google Hotels
-_CITY_CODE_TO_NAME = {
-    "NYC": "New York City", "LAX": "Los Angeles", "SFO": "San Francisco",
-    "CHI": "Chicago", "MIA": "Miami", "LAS": "Las Vegas",
-    "SEA": "Seattle", "BOS": "Boston", "DFW": "Dallas",
-    "ATL": "Atlanta", "DEN": "Denver", "PHX": "Phoenix",
-    "IAH": "Houston", "MSP": "Minneapolis", "DTW": "Detroit",
-    "PHL": "Philadelphia", "CLT": "Charlotte", "SAN": "San Diego",
-    "TPA": "Tampa", "MCO": "Orlando", "AUS": "Austin",
-    "PDX": "Portland", "SLC": "Salt Lake City", "BNA": "Nashville",
-    "LON": "London", "PAR": "Paris", "ROM": "Rome",
-    "BCN": "Barcelona", "MAD": "Madrid", "BER": "Berlin",
-    "AMS": "Amsterdam", "VIE": "Vienna", "PRG": "Prague",
-    "LIS": "Lisbon", "DUB": "Dublin", "ZRH": "Zurich",
-    "MIL": "Milan", "BRU": "Brussels", "CPH": "Copenhagen",
-    "OSL": "Oslo", "STO": "Stockholm", "HEL": "Helsinki",
-    "WAW": "Warsaw", "BUD": "Budapest", "ATH": "Athens",
-    "IST": "Istanbul", "TYO": "Tokyo", "OSA": "Osaka",
-    "SEL": "Seoul", "ICN": "Seoul", "PEK": "Beijing",
-    "BJS": "Beijing", "SHA": "Shanghai", "HKG": "Hong Kong",
-    "SIN": "Singapore", "BKK": "Bangkok", "KUL": "Kuala Lumpur",
-    "DEL": "New Delhi", "BOM": "Mumbai", "SYD": "Sydney",
-    "MEL": "Melbourne", "AKL": "Auckland", "DXB": "Dubai",
-    "DOH": "Doha", "CAI": "Cairo", "JNB": "Johannesburg",
-    "CPT": "Cape Town", "NBO": "Nairobi", "CAS": "Casablanca",
-    "MEX": "Mexico City", "CUN": "Cancun", "BOG": "Bogota",
-    "LIM": "Lima", "SCL": "Santiago", "GRU": "Sao Paulo",
-    "EZE": "Buenos Aires", "YTO": "Toronto", "YVR": "Vancouver",
-    "YMQ": "Montreal", "HAV": "Havana", "SJU": "San Juan",
-    "HNL": "Honolulu", "JFK": "New York City", "LHR": "London",
-    "CDG": "Paris", "NRT": "Tokyo", "FCO": "Rome",
-    "FRA": "Frankfurt", "MUC": "Munich", "ORD": "Chicago",
-}
-
-
-def _get_airport_coords(iata_code):
-    """Look up airport latitude/longitude from Duffel API by IATA code."""
-    resp = requests.get(
-        f"{DUFFEL_API_BASE}/air/airports",
-        headers=_duffel_headers(),
-        params={"iata_code": iata_code.upper()},
-        timeout=15,
-    )
-    if resp.status_code != 200:
-        return None, None
-    data = resp.json().get("data", [])
-    if not data:
-        return None, None
-    airport = data[0] if isinstance(data, list) else data
-    return airport.get("latitude"), airport.get("longitude")
-
-
-def search_hotels_tool(args: Dict[str, Any]) -> str:
-    """Search for hotels using the Duffel Stays REST API with Playwright fallback."""
-
-    city_code = args.get('city_code', '').strip().upper()
-    check_in = args.get('check_in', '').strip()
-    check_out = args.get('check_out', '').strip()
-    adults = int(args.get('adults', 1))
-    rooms = int(args.get('rooms', 1))
-
-    if not city_code or not check_in or not check_out:
-        return "Error: city_code, check_in, and check_out are required."
-
-    city_name = _CITY_CODE_TO_NAME.get(city_code, city_code)
-
-    try:
-        # Step 1: Get coordinates for the city via Duffel airports API
-        lat, lng = _get_airport_coords(city_code)
-        if lat is None or lng is None:
-            return (
-                f"Could not resolve coordinates for city code '{city_code}'. "
-                f"Please use a valid IATA airport/city code."
-            )
-
-        # Step 2: Search stays via Duffel REST API
-        search_payload = {
-            "data": {
-                "rooms": rooms,
-                "guests": [{"type": "adult"} for _ in range(adults)],
-                "check_in_date": check_in,
-                "check_out_date": check_out,
-                "location": {
-                    "geographic_coordinates": {
-                        "latitude": float(lat),
-                        "longitude": float(lng),
-                    },
-                    "radius": 30,
-                },
-            }
-        }
-
-        search_resp = requests.post(
-            f"{DUFFEL_API_BASE}/stays/searches",
-            headers=_duffel_headers(),
-            json=search_payload,
-            timeout=30,
-        )
-
-        if search_resp.status_code not in (200, 201):
-            # Duffel Stays may not be enabled — fall back to Playwright scraping
-            return _search_hotels_playwright_fallback(city_code, city_name, check_in, check_out, adults, rooms)
-
-        search_data = search_resp.json().get("data", {})
-        results = search_data.get("results", [])
-        if not results:
-            results = search_data if isinstance(search_data, list) else []
-
-        if not results:
-            return (
-                f"No hotels found in {city_code} ({city_name}) for {check_in} to {check_out} "
-                f"via Duffel Stays API."
-            )
-
-        # Step 3: For each result, try to fetch rates to get prices
-        hotels = []
-        for result in results[:15]:
-            result_id = result.get("id", "")
-            accommodation = result.get("accommodation", {})
-            hotel_name = accommodation.get("name", "Unknown Hotel")
-            rating_val = accommodation.get("rating", {})
-            star_rating = rating_val.get("value", "") if isinstance(rating_val, dict) else str(rating_val) if rating_val else ""
-
-            # Fetch rates for this result
-            cheapest_rate_id = ""
-            cheapest_price = ""
-            cheapest_currency = "USD"
-
-            try:
-                rates_resp = requests.get(
-                    f"{DUFFEL_API_BASE}/stays/search_results/{result_id}/rates",
-                    headers=_duffel_headers(),
-                    timeout=15,
-                )
-                if rates_resp.status_code in (200, 201):
-                    rates_data = rates_resp.json().get("data", [])
-                    if rates_data:
-                        # Sort by total_amount to find cheapest
-                        valid_rates = [r for r in rates_data if r.get("total_amount")]
-                        if valid_rates:
-                            valid_rates.sort(key=lambda r: float(r.get("total_amount", "9999")))
-                            best_rate = valid_rates[0]
-                            cheapest_rate_id = best_rate.get("id", "")
-                            cheapest_price = best_rate.get("total_amount", "")
-                            cheapest_currency = best_rate.get("total_currency", "USD")
-
-                            # Cache rate info for booking
-                            if cheapest_rate_id:
-                                _duffel_stays_cache[cheapest_rate_id] = {
-                                    "search_result_id": result_id,
-                                    "accommodation_name": hotel_name,
-                                    "total_amount": cheapest_price,
-                                    "total_currency": cheapest_currency,
-                                    "check_in": check_in,
-                                    "check_out": check_out,
-                                }
-            except Exception:
-                pass
-
-            hotels.append({
-                "name": hotel_name,
-                "rating": star_rating,
-                "price": cheapest_price,
-                "currency": cheapest_currency,
-                "rate_id": cheapest_rate_id,
-            })
-
-        # Filter to hotels with prices, then sort
-        priced_hotels = [h for h in hotels if h["price"]]
-        unpriced_hotels = [h for h in hotels if not h["price"]]
-        priced_hotels.sort(key=lambda h: float(h["price"]))
-        all_hotels = priced_hotels + unpriced_hotels
-
-        if not all_hotels:
-            return f"No hotels with available rates found in {city_code} ({city_name}) for {check_in} to {check_out}."
-
-        lines = [
-            f"Found {len(all_hotels)} hotel(s) in {city_code} ({city_name}) "
-            f"for {check_in} to {check_out}:\n"
-        ]
-        for idx, h in enumerate(all_hotels[:15], 1):
-            name = h["name"]
-            rating = h["rating"]
-            stars_text = f' {"*" * int(rating)}' if rating and rating.isdigit() else ''
-            price = h["price"]
-            currency = h["currency"]
-            rate_id = h["rate_id"]
-
-            price_text = f"**{price} {currency}** total" if price else "Price on request"
-            rate_text = f" [Rate: {rate_id}]" if rate_id else ""
-
-            lines.append(f"{idx}. **{name}**{stars_text} | {price_text}{rate_text}")
-
-        return '\n'.join(lines)
-
-    except Exception as exc:
-        # Fall back to Playwright scraping on any Duffel error
-        try:
-            return _search_hotels_playwright_fallback(city_code, city_name, check_in, check_out, adults, rooms)
-        except Exception as fallback_exc:
-            return f"Hotel search failed: {exc} (fallback also failed: {fallback_exc})"
-
-
-def _search_hotels_playwright_fallback(city_code, city_name, check_in, check_out, adults, rooms):
-    """Fallback hotel search using Playwright and Google Hotels scraping."""
-    pw = browser = None
-    try:
-        pw, browser, ctx, page = _launch_travel_browser()
-
-        from urllib.parse import quote as url_quote
-        url = (
-            f"https://www.google.com/travel/hotels/{url_quote(city_name)}"
-            f"?q={url_quote(city_name + ' hotels')}"
-            f"&hl=en-US&gl=us"
-            f"&checkin={check_in}&checkout={check_out}"
-            f"&curr=USD"
-        )
-        page.goto(url, timeout=45000, wait_until="domcontentloaded")
-        page.wait_for_timeout(8000)
-        _dismiss_consent_banners(page)
-        page.wait_for_timeout(2000)
-        body_text = page.inner_text("body")
-
-        hotels = _parse_hotels_from_text(body_text, city_code, check_in, check_out)
-        if not hotels:
-            return (
-                f"No hotels found in {city_code} ({city_name}) for {check_in} to {check_out}. "
-                f"Duffel Stays is not available and Playwright scraping found no results."
-            )
-
-        hotels.sort(key=lambda h: float(h.get('price', 9999)))
-        lines = [
-            f"Found {len(hotels)} hotel(s) in {city_code} ({city_name}) "
-            f"({check_in} to {check_out}) via web search:\n"
-        ]
-        for i, h in enumerate(hotels[:15], 1):
-            name = h.get('name', 'Unknown Hotel')
-            rating = h.get('rating', '')
-            stars_text = f' {"*" * int(rating)}' if rating else ''
-            price = h.get('price', '?')
-            currency = h.get('currency', 'USD')
-            sym = next((s for s, c in _CURRENCY_SYMBOLS.items() if c == currency), '$')
-            lines.append(f"{i}. **{name}**{stars_text} | **{sym}{price} {currency}** total")
-
-        lines.append("\n*Note: Results from web search (Duffel Stays unavailable). Hotel booking via API not available for these results.*")
-        return '\n'.join(lines)
-
-    finally:
-        try:
-            if browser:
-                browser.close()
-        except Exception:
-            pass
-        try:
-            if pw:
-                pw.stop()
-        except Exception:
-            pass
-
-
-SEARCH_HOTELS_DEFINITION = ToolDefinition(
-    name="search_hotels",
-    description=(
-        "Search for hotel offers in a city using the Duffel Stays API. Returns a list of available "
-        "hotels with names, star ratings, prices, and rate IDs for booking. Use IATA city/airport "
-        "codes (e.g. NYC, LON, PAR, JFK). Dates must be in YYYY-MM-DD format. "
-        "Falls back to web search if the Stays API is unavailable."
-    ),
-    parameters={
-        "type": "object",
-        "properties": {
-            "city_code": {
-                "type": "string",
-                "description": "IATA city or airport code (e.g. 'NYC', 'LON', 'PAR', 'SYD', 'JFK')."
-            },
-            "check_in": {
-                "type": "string",
-                "description": "Check-in date in YYYY-MM-DD format."
-            },
-            "check_out": {
-                "type": "string",
-                "description": "Check-out date in YYYY-MM-DD format."
-            },
-            "adults": {
-                "type": "integer",
-                "description": "Number of adult guests (default 1)."
-            },
-            "rooms": {
-                "type": "integer",
-                "description": "Number of rooms (default 1)."
-            }
-        },
-        "required": ["city_code", "check_in", "check_out"]
-    },
-    function=search_hotels_tool,
-    requires_approval=False
-)
-
-
 def book_travel_tool(args: Dict[str, Any]) -> str:
-    """Book a flight or hotel via the Duffel API and persist to database."""
+    """Book a flight via the Duffel API and persist to database."""
     from chat.models import Booking
 
-    booking_type = args.get('booking_type', '')
     given_name = args.get('given_name', '')
     family_name = args.get('family_name', '')
     passenger_email = args.get('passenger_email', '')
@@ -2244,7 +1636,6 @@ def book_travel_tool(args: Dict[str, Any]) -> str:
 
     # Duffel identifiers
     offer_id = args.get('offer_id', '')
-    rate_id = args.get('rate_id', '')
 
     # Flight display fields
     airline = args.get('airline', '')
@@ -2257,40 +1648,41 @@ def book_travel_tool(args: Dict[str, Any]) -> str:
     duration = args.get('duration', '')
     booking_class = args.get('booking_class', 'economy')
 
-    # Hotel display fields
-    hotel_name = args.get('hotel_name', '')
-    check_in = args.get('check_in', '')
-    check_out = args.get('check_out', '')
-    rating = args.get('rating', '')
-    room_type = args.get('room_type', '')
-
     # Validation
-    if not booking_type or booking_type not in ('flight', 'hotel'):
-        return "Error: booking_type must be 'flight' or 'hotel'."
     if not given_name or not family_name:
         return "Error: both given_name and family_name are required."
     if not passenger_email:
         return "Error: passenger_email is required."
     if not card_last_four:
         return "Error: card_last_four is required for payment verification."
+    if not offer_id:
+        return "Error: offer_id is required for flight booking. Use search_flights first to get offer IDs."
 
     passenger_name = f"{given_name} {family_name}"
 
-    # ── FLIGHT BOOKING via Duffel SDK ──
-    if booking_type == 'flight':
-        if not offer_id:
-            return "Error: offer_id is required for flight booking. Use search_flights first to get offer IDs."
+    cached = _duffel_offer_cache.get(offer_id)
+    if not cached:
+        return (
+            "Error: Offer not found in cache. The offer may have expired. "
+            "Please run search_flights again to get fresh offers."
+        )
 
-        cached = _duffel_offer_cache.get(offer_id)
-        if not cached:
-            return (
-                "Error: Offer not found in cache. The offer may have expired. "
-                "Please run search_flights again to get fresh offers."
-            )
+    try:
+        passenger_data = [{
+            "id": cached["passenger_ids"][0],
+            "given_name": given_name,
+            "family_name": family_name,
+            "born_on": date_of_birth or "1990-01-01",
+            "title": title.lower().rstrip('.'),
+            "gender": gender[0].lower() if gender else "m",
+            "email": passenger_email,
+            "phone_number": phone_number or "+10000000000",
+        }]
 
-        try:
-            passenger_data = [{
-                "id": cached["passenger_ids"][0],
+        # Add additional passengers if there are more cached passenger IDs
+        for pid in cached["passenger_ids"][1:]:
+            passenger_data.append({
+                "id": pid,
                 "given_name": given_name,
                 "family_name": family_name,
                 "born_on": date_of_birth or "1990-01-01",
@@ -2298,234 +1690,101 @@ def book_travel_tool(args: Dict[str, Any]) -> str:
                 "gender": gender[0].lower() if gender else "m",
                 "email": passenger_email,
                 "phone_number": phone_number or "+10000000000",
-            }]
+            })
 
-            # Add additional passengers if there are more cached passenger IDs
-            for pid in cached["passenger_ids"][1:]:
-                passenger_data.append({
-                    "id": pid,
-                    "given_name": given_name,
-                    "family_name": family_name,
-                    "born_on": date_of_birth or "1990-01-01",
-                    "title": title.lower().rstrip('.'),
-                    "gender": gender[0].lower() if gender else "m",
-                    "email": passenger_email,
-                    "phone_number": phone_number or "+10000000000",
-                })
-
-            order_payload = {
-                "data": {
-                    "selected_offers": [offer_id],
-                    "passengers": passenger_data,
-                    "payments": [{
-                        "type": "balance",
-                        "currency": cached["total_currency"],
-                        "amount": cached["total_amount"],
-                    }],
-                    "type": "instant",
-                }
+        order_payload = {
+            "data": {
+                "selected_offers": [offer_id],
+                "passengers": passenger_data,
+                "payments": [{
+                    "type": "balance",
+                    "currency": cached["total_currency"],
+                    "amount": cached["total_amount"],
+                }],
+                "type": "instant",
             }
+        }
 
-            status, resp_json = _duffel_post("/air/orders", order_payload, timeout=45)
+        status, resp_json = _duffel_post("/air/orders", order_payload, timeout=45)
 
-            if status not in (200, 201):
-                error_msg = resp_json.get("errors", [{}])[0].get("message", str(resp_json)) if resp_json.get("errors") else str(resp_json)
-                return f"Flight booking failed (HTTP {status}): {error_msg}"
+        if status not in (200, 201):
+            error_msg = resp_json.get("errors", [{}])[0].get("message", str(resp_json)) if resp_json.get("errors") else str(resp_json)
+            return f"Flight booking failed (HTTP {status}): {error_msg}"
 
-            order_data = resp_json.get("data", {})
-            booking_ref = order_data.get("booking_reference", "") or uuid.uuid4().hex[:10].upper()
-            duffel_order_id = order_data.get("id", "")
-            total_amount = order_data.get("total_amount", cached["total_amount"])
-            total_currency = order_data.get("total_currency", cached["total_currency"])
+        order_data = resp_json.get("data", {})
+        booking_ref = order_data.get("booking_reference", "") or uuid.uuid4().hex[:10].upper()
+        duffel_order_id = order_data.get("id", "")
+        total_amount = order_data.get("total_amount", cached["total_amount"])
+        total_currency = order_data.get("total_currency", cached["total_currency"])
 
-            # Persist to database
-            Booking.objects.create(
-                booking_ref=booking_ref,
-                booking_type='flight',
-                duffel_order_id=duffel_order_id,
-                passenger_name=passenger_name,
-                passenger_email=passenger_email,
-                total_price=Decimal(str(total_amount)),
-                currency=total_currency,
-                status='confirmed',
-                details={
-                    "duffel_order_id": duffel_order_id,
-                    "offer_id": offer_id,
-                    "airline": airline,
-                    "origin": origin,
-                    "destination": destination,
-                    "departure_date": departure_date,
-                    "departure_time": departure_time,
-                    "arrival_time": arrival_time,
-                    "stops": stops,
-                    "duration": duration,
-                    "booking_class": booking_class,
-                    "card_last_four": card_last_four,
-                },
-            )
+        # Persist to database
+        Booking.objects.create(
+            booking_ref=booking_ref,
+            booking_type='flight',
+            duffel_order_id=duffel_order_id,
+            passenger_name=passenger_name,
+            passenger_email=passenger_email,
+            total_price=Decimal(str(total_amount)),
+            currency=total_currency,
+            status='confirmed',
+            details={
+                "duffel_order_id": duffel_order_id,
+                "offer_id": offer_id,
+                "airline": airline,
+                "origin": origin,
+                "destination": destination,
+                "departure_date": departure_date,
+                "departure_time": departure_time,
+                "arrival_time": arrival_time,
+                "stops": stops,
+                "duration": duration,
+                "booking_class": booking_class,
+                "card_last_four": card_last_four,
+            },
+        )
 
-            # Remove from cache after successful booking
-            _duffel_offer_cache.pop(offer_id, None)
+        # Remove from cache after successful booking
+        _duffel_offer_cache.pop(offer_id, None)
 
-            # Build confirmation
-            lines = [
-                "## Flight Booking Confirmed!",
-                "",
-                f"**Booking Reference (PNR):** `{booking_ref}`",
-                f"**Duffel Order ID:** `{duffel_order_id}`",
-                f"**Status:** Confirmed",
-                f"**Passenger:** {passenger_name} ({passenger_email})",
-                f"**Payment:** Card ending in ****{card_last_four}",
-            ]
-            if airline:
-                lines.append(f"**Airline:** {airline}")
-            if origin and destination:
-                lines.append(f"**Route:** {origin} \u2192 {destination}")
-            if departure_time:
-                lines.append(f"**Departure:** {departure_date} {departure_time}")
-            if arrival_time:
-                lines.append(f"**Arrival:** {arrival_time}")
-            if duration:
-                lines.append(f"**Duration:** {duration}")
-            stops_int = int(stops) if stops else 0
-            stops_text = 'Nonstop' if stops_int == 0 else f'{stops_int} stop{"s" if stops_int > 1 else ""}'
-            lines.append(f"**Stops:** {stops_text}")
-            lines.append(f"**Class:** {booking_class}")
-            lines.append(f"**Total Price:** {total_amount} {total_currency}")
-            lines.append("")
-            lines.append("*Booked via Duffel API. This booking is saved to the database.*")
+        # Build confirmation
+        lines = [
+            "## Flight Booking Confirmed!",
+            "",
+            f"**Booking Reference (PNR):** `{booking_ref}`",
+            f"**Duffel Order ID:** `{duffel_order_id}`",
+            f"**Status:** Confirmed",
+            f"**Passenger:** {passenger_name} ({passenger_email})",
+            f"**Payment:** Card ending in ****{card_last_four}",
+        ]
+        if airline:
+            lines.append(f"**Airline:** {airline}")
+        if origin and destination:
+            lines.append(f"**Route:** {origin} \u2192 {destination}")
+        if departure_time:
+            lines.append(f"**Departure:** {departure_date} {departure_time}")
+        if arrival_time:
+            lines.append(f"**Arrival:** {arrival_time}")
+        if duration:
+            lines.append(f"**Duration:** {duration}")
+        stops_int = int(stops) if stops else 0
+        stops_text = 'Nonstop' if stops_int == 0 else f'{stops_int} stop{"s" if stops_int > 1 else ""}'
+        lines.append(f"**Stops:** {stops_text}")
+        lines.append(f"**Class:** {booking_class}")
+        lines.append(f"**Total Price:** {total_amount} {total_currency}")
+        lines.append("")
+        lines.append("*Booked via Duffel API. This booking is saved to the database.*")
 
-            return '\n'.join(lines)
+        return '\n'.join(lines)
 
-        except Exception as exc:
-            return f"Flight booking failed: {exc}"
-
-    # ── HOTEL BOOKING via Duffel Stays REST API ──
-    else:
-        if not rate_id:
-            return "Error: rate_id is required for hotel booking. Use search_hotels first to get rate IDs."
-
-        cached_rate = _duffel_stays_cache.get(rate_id)
-
-        try:
-            headers = _duffel_headers()
-
-            # Step 1: Create a quote
-            quote_payload = {"data": {"rate_id": rate_id}}
-            quote_resp = requests.post(
-                f"{DUFFEL_API_BASE}/stays/quotes",
-                headers=headers,
-                json=quote_payload,
-                timeout=30,
-            )
-
-            if quote_resp.status_code not in (200, 201):
-                error_detail = quote_resp.text[:300]
-                return f"Hotel booking failed at quote step: {quote_resp.status_code} - {error_detail}"
-
-            quote_data = quote_resp.json().get("data", {})
-            quote_id = quote_data.get("id", "")
-
-            if not quote_id:
-                return "Hotel booking failed: Could not create a quote for the selected rate."
-
-            total_amount = quote_data.get("total_amount", "0")
-            total_currency = quote_data.get("total_currency", "USD")
-
-            # Step 2: Create booking
-            booking_payload = {
-                "data": {
-                    "quote_id": quote_id,
-                    "guests": [{
-                        "given_name": given_name,
-                        "family_name": family_name,
-                    }],
-                    "email": passenger_email,
-                    "phone_number": phone_number or "+10000000000",
-                }
-            }
-
-            booking_resp = requests.post(
-                f"{DUFFEL_API_BASE}/stays/bookings",
-                headers=headers,
-                json=booking_payload,
-                timeout=30,
-            )
-
-            if booking_resp.status_code not in (200, 201):
-                error_detail = booking_resp.text[:300]
-                return f"Hotel booking failed at booking step: {booking_resp.status_code} - {error_detail}"
-
-            booking_data = booking_resp.json().get("data", {})
-            duffel_booking_id = booking_data.get("id", "")
-            booking_ref = booking_data.get("reference", "") or uuid.uuid4().hex[:10].upper()
-            accom_name = hotel_name or (cached_rate or {}).get("accommodation_name", "Hotel")
-            ci = check_in or (cached_rate or {}).get("check_in", "")
-            co = check_out or (cached_rate or {}).get("check_out", "")
-
-            # Persist to database
-            Booking.objects.create(
-                booking_ref=booking_ref,
-                booking_type='hotel',
-                duffel_order_id=duffel_booking_id,
-                passenger_name=passenger_name,
-                passenger_email=passenger_email,
-                total_price=Decimal(str(total_amount)),
-                currency=total_currency,
-                status='confirmed',
-                details={
-                    "duffel_booking_id": duffel_booking_id,
-                    "rate_id": rate_id,
-                    "quote_id": quote_id,
-                    "hotel_name": accom_name,
-                    "check_in": ci,
-                    "check_out": co,
-                    "rating": rating,
-                    "room_type": room_type,
-                    "card_last_four": card_last_four,
-                },
-            )
-
-            # Remove from cache
-            _duffel_stays_cache.pop(rate_id, None)
-
-            lines = [
-                "## Hotel Booking Confirmed!",
-                "",
-                f"**Booking Reference:** `{booking_ref}`",
-                f"**Duffel Booking ID:** `{duffel_booking_id}`",
-                f"**Status:** Confirmed",
-                f"**Guest:** {passenger_name} ({passenger_email})",
-                f"**Payment:** Card ending in ****{card_last_four}",
-                f"**Hotel:** {accom_name}",
-            ]
-            if rating:
-                try:
-                    r = int(rating)
-                    filled = '\u2605' * r
-                    empty = '\u2606' * (5 - r)
-                    lines.append(f"**Rating:** {filled}{empty}")
-                except ValueError:
-                    pass
-            lines.append(f"**Dates:** {ci} to {co}")
-            if room_type:
-                lines.append(f"**Room:** {room_type}")
-            lines.append(f"**Total Price:** {total_amount} {total_currency}")
-            lines.append("")
-            lines.append("*Booked via Duffel Stays API. This booking is saved to the database.*")
-
-            return '\n'.join(lines)
-
-        except Exception as exc:
-            return f"Hotel booking failed: {exc}"
+    except Exception as exc:
+        return f"Flight booking failed: {exc}"
 
 
 BOOK_TRAVEL_DEFINITION = ToolDefinition(
     name="book_travel",
     description=(
-        "Book a flight or hotel via the Duffel API. Use this AFTER searching with "
-        "search_flights or search_hotels. You need the offer_id (for flights) or rate_id "
-        "(for hotels) from the search results.\n\n"
+        "Book a flight via the Duffel API. Use this AFTER searching with "
+        "search_flights. You need the offer_id from the search results.\n\n"
         "IMPORTANT - You MUST collect the passenger's booking details STEP BY STEP in this exact order. "
         "Ask ONE question at a time, wait for the user's response, then ask the next:\n"
         "  Step 1: Ask for the passenger's given name (first name) and family name (last name).\n"
@@ -2535,22 +1794,14 @@ BOOK_TRAVEL_DEFINITION = ToolDefinition(
         "Store only the last 4 digits as card_last_four and the name on the card as card_holder_name.\n"
         "  Step 5: Confirm all details and total price with the user, then call this tool.\n\n"
         "Do NOT ask for multiple steps in the same message. Do NOT call this tool until ALL steps are completed. "
-        "Returns a booking confirmation with the airline PNR or hotel reference."
+        "Returns a booking confirmation with the airline PNR."
     ),
     parameters={
         "type": "object",
         "properties": {
-            "booking_type": {
-                "type": "string",
-                "description": "Type of booking: 'flight' or 'hotel'."
-            },
             "offer_id": {
                 "type": "string",
-                "description": "Duffel offer ID from search_flights results (flights only, e.g. 'off_00009xxx')."
-            },
-            "rate_id": {
-                "type": "string",
-                "description": "Duffel rate ID from search_hotels results (hotels only, e.g. 'rat_xxx')."
+                "description": "Duffel offer ID from search_flights results (e.g. 'off_00009xxx')."
             },
             "given_name": {
                 "type": "string",
@@ -2590,62 +1841,42 @@ BOOK_TRAVEL_DEFINITION = ToolDefinition(
             },
             "airline": {
                 "type": "string",
-                "description": "Airline name for display (flights only)."
+                "description": "Airline name for display."
             },
             "origin": {
                 "type": "string",
-                "description": "Departure airport code (flights only)."
+                "description": "Departure airport code."
             },
             "destination": {
                 "type": "string",
-                "description": "Arrival airport code (flights only)."
+                "description": "Arrival airport code."
             },
             "departure_date": {
                 "type": "string",
-                "description": "Departure date YYYY-MM-DD (flights only)."
+                "description": "Departure date YYYY-MM-DD."
             },
             "departure_time": {
                 "type": "string",
-                "description": "Departure time e.g. '08:30' (flights only)."
+                "description": "Departure time e.g. '08:30'."
             },
             "arrival_time": {
                 "type": "string",
-                "description": "Arrival time e.g. '14:45' (flights only)."
+                "description": "Arrival time e.g. '14:45'."
             },
             "stops": {
                 "type": "integer",
-                "description": "Number of stops (flights only)."
+                "description": "Number of stops."
             },
             "duration": {
                 "type": "string",
-                "description": "Flight duration e.g. '5h 30m' (flights only)."
+                "description": "Flight duration e.g. '5h 30m'."
             },
             "booking_class": {
                 "type": "string",
-                "description": "Cabin class e.g. 'economy', 'business' (flights only)."
-            },
-            "hotel_name": {
-                "type": "string",
-                "description": "Hotel name (hotels only)."
-            },
-            "check_in": {
-                "type": "string",
-                "description": "Check-in date YYYY-MM-DD (hotels only)."
-            },
-            "check_out": {
-                "type": "string",
-                "description": "Check-out date YYYY-MM-DD (hotels only)."
-            },
-            "rating": {
-                "type": "string",
-                "description": "Star rating e.g. '4' (hotels only)."
-            },
-            "room_type": {
-                "type": "string",
-                "description": "Room type/category (hotels only)."
+                "description": "Cabin class e.g. 'economy', 'business'."
             }
         },
-        "required": ["booking_type", "given_name", "family_name", "passenger_email", "card_last_four"]
+        "required": ["offer_id", "given_name", "family_name", "passenger_email", "card_last_four"]
     },
     function=book_travel_tool,
     requires_approval=True
@@ -2684,29 +1915,21 @@ def get_booking_tool(args: Dict[str, Any]) -> str:
         lines.append(f"**Duffel ID:** `{booking.duffel_order_id}`")
 
     details = booking.details or {}
-    if booking.booking_type == 'flight':
-        if details.get('airline'):
-            lines.append(f"**Airline:** {details['airline']}")
-        if details.get('origin') and details.get('destination'):
-            lines.append(f"**Route:** {details['origin']} \u2192 {details['destination']}")
-        if details.get('departure_date'):
-            dep_line = details['departure_date']
-            if details.get('departure_time'):
-                dep_line += f" {details['departure_time']}"
-            lines.append(f"**Departure:** {dep_line}")
-        if details.get('arrival_time'):
-            lines.append(f"**Arrival:** {details['arrival_time']}")
-        if details.get('duration'):
-            lines.append(f"**Duration:** {details['duration']}")
-        if details.get('booking_class'):
-            lines.append(f"**Class:** {details['booking_class']}")
-    else:
-        if details.get('hotel_name'):
-            lines.append(f"**Hotel:** {details['hotel_name']}")
-        if details.get('check_in') and details.get('check_out'):
-            lines.append(f"**Dates:** {details['check_in']} to {details['check_out']}")
-        if details.get('room_type'):
-            lines.append(f"**Room:** {details['room_type']}")
+    if details.get('airline'):
+        lines.append(f"**Airline:** {details['airline']}")
+    if details.get('origin') and details.get('destination'):
+        lines.append(f"**Route:** {details['origin']} \u2192 {details['destination']}")
+    if details.get('departure_date'):
+        dep_line = details['departure_date']
+        if details.get('departure_time'):
+            dep_line += f" {details['departure_time']}"
+        lines.append(f"**Departure:** {dep_line}")
+    if details.get('arrival_time'):
+        lines.append(f"**Arrival:** {details['arrival_time']}")
+    if details.get('duration'):
+        lines.append(f"**Duration:** {details['duration']}")
+    if details.get('booking_class'):
+        lines.append(f"**Class:** {details['booking_class']}")
 
     # Try to fetch live status from Duffel if it's a flight order
     if booking.booking_type == 'flight' and booking.duffel_order_id and booking.status != 'cancelled':
@@ -2763,54 +1986,32 @@ def cancel_booking_tool(args: Dict[str, Any]) -> str:
         return f"Booking '{booking_ref}' has no Duffel ID — cannot cancel via API."
 
     try:
-        if booking.booking_type == 'flight':
-            # Step 1: Create cancellation (gets refund quote)
-            cancel_payload = {"data": {"order_id": booking.duffel_order_id}}
-            c_status, c_resp = _duffel_post("/air/order_cancellations", cancel_payload)
-            if c_status not in (200, 201):
-                error_msg = c_resp.get("errors", [{}])[0].get("message", str(c_resp)) if c_resp.get("errors") else str(c_resp)
-                return f"Flight cancellation failed: {error_msg}"
+        # Step 1: Create cancellation (gets refund quote)
+        cancel_payload = {"data": {"order_id": booking.duffel_order_id}}
+        c_status, c_resp = _duffel_post("/air/order_cancellations", cancel_payload)
+        if c_status not in (200, 201):
+            error_msg = c_resp.get("errors", [{}])[0].get("message", str(c_resp)) if c_resp.get("errors") else str(c_resp)
+            return f"Flight cancellation failed: {error_msg}"
 
-            cancellation_data = c_resp.get("data", {})
-            cancellation_id = cancellation_data.get("id", "")
-            refund_amount = cancellation_data.get("refund_amount", "0")
-            refund_currency = cancellation_data.get("refund_currency", booking.currency)
+        cancellation_data = c_resp.get("data", {})
+        cancellation_id = cancellation_data.get("id", "")
+        refund_amount = cancellation_data.get("refund_amount", "0")
+        refund_currency = cancellation_data.get("refund_currency", booking.currency)
 
-            # Step 2: Confirm the cancellation
-            confirm_status, confirm_resp = _duffel_post(f"/air/order_cancellations/{cancellation_id}/actions/confirm", {})
-            confirmed_data = confirm_resp.get("data", {}) if confirm_status in (200, 201) else {}
+        # Step 2: Confirm the cancellation
+        confirm_status, confirm_resp = _duffel_post(f"/air/order_cancellations/{cancellation_id}/actions/confirm", {})
+        confirmed_data = confirm_resp.get("data", {}) if confirm_status in (200, 201) else {}
 
-            booking.status = 'cancelled'
-            booking.save()
+        booking.status = 'cancelled'
+        booking.save()
 
-            return (
-                f"## Booking Cancelled\n\n"
-                f"**Reference:** `{booking_ref}`\n"
-                f"**Status:** Cancelled\n"
-                f"**Refund:** {refund_amount} {refund_currency}\n"
-                f"**Cancelled At:** {confirmed_data.get('confirmed_at', 'now')}"
-            )
-
-        else:  # hotel
-            headers = _duffel_headers()
-            cancel_resp = requests.post(
-                f"{DUFFEL_API_BASE}/stays/bookings/{booking.duffel_order_id}/actions/cancel",
-                headers=headers,
-                timeout=30,
-            )
-
-            if cancel_resp.status_code not in (200, 201):
-                return f"Hotel cancellation failed: {cancel_resp.status_code} - {cancel_resp.text[:300]}"
-
-            booking.status = 'cancelled'
-            booking.save()
-
-            return (
-                f"## Hotel Booking Cancelled\n\n"
-                f"**Reference:** `{booking_ref}`\n"
-                f"**Hotel:** {(booking.details or {}).get('hotel_name', 'N/A')}\n"
-                f"**Status:** Cancelled"
-            )
+        return (
+            f"## Booking Cancelled\n\n"
+            f"**Reference:** `{booking_ref}`\n"
+            f"**Status:** Cancelled\n"
+            f"**Refund:** {refund_amount} {refund_currency}\n"
+            f"**Cancelled At:** {confirmed_data.get('confirmed_at', 'now')}"
+        )
 
     except Exception as exc:
         return f"Cancellation failed: {exc}"
@@ -2818,7 +2019,7 @@ def cancel_booking_tool(args: Dict[str, Any]) -> str:
 
 CANCEL_BOOKING_DEFINITION = ToolDefinition(
     name="cancel_booking",
-    description="Cancel an existing flight or hotel booking. Cancels via the Duffel API and updates the database. Provide the booking reference code.",
+    description="Cancel an existing flight booking. Cancels via the Duffel API and updates the database. Provide the booking reference code.",
     parameters={
         "type": "object",
         "properties": {
@@ -2892,7 +2093,7 @@ RENAME_FILE_DEFINITION = ToolDefinition(
 
 RUN_CODE_DEFINITION = ToolDefinition(
     name="run_code",
-    description="Execute a shell command or run a script (e.g., 'python script.py'). Use this to test code or perform system checks.",
+    description="Execute a shell command or run a script. Supports Python, C (gcc), C++ (g++), Java (javac), and any other shell command. Use this to compile, run, test code, or perform system checks.",
     parameters={
         "type": "object",
         "properties": {
@@ -2910,7 +2111,7 @@ RUN_CODE_DEFINITION = ToolDefinition(
 
 CHECK_SYNTAX_DEFINITION = ToolDefinition(
     name="check_syntax",
-    description="Check the syntax of a code file (supports .py and .java).",
+    description="Check the syntax of a code file (supports .py, .java, .c, .cpp, .rs, .js, .ts, .go, .sql).",
     parameters={
         "type": "object",
         "properties": {
@@ -2946,7 +2147,7 @@ RUN_TESTS_DEFINITION = ToolDefinition(
 
 LINT_CODE_DEFINITION = ToolDefinition(
     name="lint_code",
-    description="Run static analysis (linting) on a code file (supports .py and .java).",
+    description="Run static analysis (linting) on a code file (supports .py, .java, .c, .cpp, .rs, .js, .ts, .go, .sql).",
     parameters={
         "type": "object",
         "properties": {
@@ -4495,7 +3696,6 @@ def main():
         PLAYWRIGHT_MCP_DEFINITION,
         SEARCH_FLIGHTS_DEFINITION,
         BOOK_TRAVEL_DEFINITION,
-        SEARCH_HOTELS_DEFINITION,
         GET_BOOKING_DEFINITION,
         LIST_BOOKINGS_DEFINITION,
         CANCEL_BOOKING_DEFINITION,
@@ -4585,7 +3785,6 @@ class Agent:
            - NEVER create fewer or more pages/slides than requested. Double-check your content structure before calling the tool.
         16. TRAVEL BOOKING WORKFLOW:
            - For flights: Use 'search_flights' to find available flights. Results include Duffel offer IDs (e.g. [Offer: off_xxx]). When the user selects a flight, collect their details step-by-step per the book_travel tool description, then call 'book_travel' with the offer_id and passenger details.
-           - For hotels: Use 'search_hotels' to find available hotels. Results include rate IDs (e.g. [Rate: rat_xxx]). Same step-by-step detail collection, then call 'book_travel' with the rate_id and guest details.
            - Offers expire in approximately 30 minutes. If booking fails due to expiry, search again.
            - Use 'get_booking' to look up existing bookings by reference, 'cancel_booking' to cancel, and 'list_bookings' to show all bookings.
            - Always confirm the total price and all details with the user before calling book_travel.
