@@ -450,11 +450,20 @@ class AgentTUI(App):
 
     # ── Core agent interaction ────────────────────────────────────
 
+    @staticmethod
+    def _strip_at_references(text):
+        """Strip @ prefix from file references so the agent sees clean paths."""
+        import re
+        return re.sub(r'(?<!\S)@(\S+)', r'\1', text)
+
     @work(thread=True)
     def _send_message(self, text):
         log = self.query_one("#chat-log", RichLog)
         log.write(f"\n[bold dodger_blue1]You:[/] {text}")
         self._update_header("Thinking...")
+
+        # Strip @ prefixes from file references before sending to agent
+        agent_text = self._strip_at_references(text)
 
         # Auto-title from first message
         if not self.session_title:
@@ -462,7 +471,7 @@ class AgentTUI(App):
 
         result = self.agent.chat_once(
             conversation_history=self.conversation_history,
-            message=text,
+            message=agent_text,
         )
 
         status = result.get("status", "error")
