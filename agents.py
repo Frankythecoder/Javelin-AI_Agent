@@ -4050,13 +4050,12 @@ class Agent:
             # Detect interrupted task and inject context if user wants to continue
             if message:
                 continuation_context = self._detect_interrupted_task(messages, message)
-                if continuation_context:
-                    messages.append(HumanMessage(content=continuation_context))
-
-            if message:
                 if is_prompt_injection(message):
                     return {"status": "error", "message": "Security Warning: Potential prompt injection detected. Message blocked."}
-                messages.append(HumanMessage(content=message))
+                if continuation_context:
+                    messages.append(HumanMessage(content=f"{continuation_context}\n\n{message}"))
+                else:
+                    messages.append(HumanMessage(content=message))
 
             messages = self._trim_messages(messages)
 
@@ -4508,16 +4507,18 @@ class Agent:
         transcript_parts = []
         for msg in messages:
             if isinstance(msg, HumanMessage):
-                transcript_parts.append(f"User: {msg.content}")
+                user_content = msg.content if isinstance(msg.content, str) else str(msg.content or "")
+                transcript_parts.append(f"User: {user_content[:500]}")
             elif isinstance(msg, AIMessage):
-                text = msg.content or ""
+                text = (msg.content if isinstance(msg.content, str) else str(msg.content or ""))[:500]
                 if msg.tool_calls:
                     tool_names = ", ".join(tc["name"] for tc in msg.tool_calls)
                     text += f" [Called tools: {tool_names}]"
                 transcript_parts.append(f"Assistant: {text}")
             elif isinstance(msg, ToolMessage):
                 # Truncate long tool results to keep the summarization prompt small
-                content = msg.content[:500] if len(msg.content) > 500 else msg.content
+                raw = msg.content if isinstance(msg.content, str) else str(msg.content or "")
+                content = raw[:500]
                 transcript_parts.append(f"Tool ({msg.name}): {content}")
 
         transcript = "\n".join(transcript_parts)
@@ -4591,7 +4592,8 @@ class Agent:
             if isinstance(msg, AIMessage) and msg.tool_calls:
                 tool_call_ids = {tc["id"] for tc in msg.tool_calls}
                 # Check if ALL tool calls have corresponding ToolMessage responses
-                remaining = messages[messages.index(msg) + 1:]
+                abs_index = len(messages) - len(recent) + i
+                remaining = messages[abs_index + 1:]
                 responded_ids = {
                     m.tool_call_id for m in remaining
                     if isinstance(m, ToolMessage)
