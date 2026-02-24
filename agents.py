@@ -3747,6 +3747,7 @@ class Agent:
         self.llm = ChatOpenAI(
             model=model_name,
             api_key=client.api_key,
+            request_timeout=30,
         )
         self.llm_with_tools = self.llm.bind_tools(self.langchain_tools)
 
