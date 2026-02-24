@@ -1115,10 +1115,51 @@
                 if (data.message) {
                     appendMessage('agent', data.message);
                 }
+
+                if (action === 'stop') {
+                    dismissPendingApprovals();
+                    cleanHistoryAfterStop();
+                }
             } catch (err) {
                 appendMessage('agent', '⚠️ Failed to control agent.');
                 console.error(err);
             }
+        }
+
+        function cleanHistoryAfterStop() {
+            // Walk backwards — find the last assistant message with orphaned tool_calls
+            for (let i = conversationHistory.length - 1; i >= 0; i--) {
+                const msg = conversationHistory[i];
+                if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+                    // Check for matching tool responses after this index
+                    const toolCallIds = new Set(msg.tool_calls.map(tc => tc.id));
+                    const respondedIds = new Set();
+                    for (let j = i + 1; j < conversationHistory.length; j++) {
+                        if (conversationHistory[j].role === 'tool') {
+                            respondedIds.add(conversationHistory[j].tool_call_id);
+                        }
+                    }
+                    const allResponded = [...toolCallIds].every(id => respondedIds.has(id));
+                    if (!allResponded) {
+                        conversationHistory.splice(i, 1);
+                        return;
+                    }
+                    break;
+                }
+                if (msg.role !== 'tool') {
+                    break;
+                }
+            }
+        }
+
+        function dismissPendingApprovals() {
+            // Remove all plan approval and tool approval button groups from the DOM
+            document.querySelectorAll('.btn-approve, .btn-deny').forEach(btn => {
+                const card = btn.closest('.tool-card');
+                if (card) {
+                    card.innerHTML = '<div style="text-align:center;color:var(--text-muted);font-size:0.8rem;padding:0.5rem;">Stopped by user.</div>';
+                }
+            });
         }
 
         // ─── Speech-to-Text (Web Speech API) ────────────────────────

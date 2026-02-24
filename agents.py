@@ -4048,6 +4048,9 @@ class Agent:
                         continue
                     messages.append(lc_msg)
 
+            # Strip orphaned tool_calls left by interrupted plan approval
+            messages = self._strip_orphaned_tool_calls(messages)
+
             # Detect interrupted task and inject context if user wants to continue
             if message:
                 continuation_context = self._detect_interrupted_task(messages, message)
@@ -4307,6 +4310,38 @@ class Agent:
                     tool_call_id=msg.get("tool_call_id", ""),
                     name=msg.get("name", ""),
                 ))
+        return messages
+
+    def _strip_orphaned_tool_calls(self, messages: List[BaseMessage]) -> List[BaseMessage]:
+        """Remove trailing AIMessage with tool_calls that have no matching ToolMessages.
+
+        This happens when execution is stopped during plan approval — the
+        AIMessage with tool_calls is saved to history but no ToolMessages
+        were ever appended.  OpenAI rejects such sequences, so we strip
+        them before the next LLM call.
+        """
+        if not messages:
+            return messages
+
+        # Walk backwards to find the last AIMessage with tool_calls
+        for i in range(len(messages) - 1, -1, -1):
+            msg = messages[i]
+            if isinstance(msg, AIMessage) and msg.tool_calls:
+                # Check if ALL tool_calls have matching ToolMessages after this index
+                tool_call_ids = {tc["id"] for tc in msg.tool_calls}
+                responded_ids = {
+                    m.tool_call_id for m in messages[i + 1:]
+                    if isinstance(m, ToolMessage)
+                }
+                if not tool_call_ids.issubset(responded_ids):
+                    # Orphaned — remove this AIMessage
+                    return messages[:i] + messages[i + 1:]
+                # Found a complete AIMessage with tool_calls — history is valid
+                break
+            # Stop searching at first non-tool, non-AI message going backwards
+            if not isinstance(msg, ToolMessage):
+                break
+
         return messages
 
     def _messages_to_dicts(self, messages: List[BaseMessage]) -> List[Dict[str, Any]]:

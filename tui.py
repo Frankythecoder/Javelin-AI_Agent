@@ -687,9 +687,45 @@ class AgentTUI(App):
     def action_stop_agent(self):
         if self.agent:
             self.agent.control.stop()
+
+        # Dismiss any pending approval and clean orphaned history
+        if self._awaiting_approval:
+            self._awaiting_approval = False
+            self._approval_type = None
+            self._pending_plan = []
+            self._pending_tools = []
+            self._pending_history = []
+            self._clean_history_after_stop()
+
         log = self.query_one("#chat-log", RichLog)
         log.write("[bold red]Agent execution stopped.[/]")
         self._update_header("Stopped")
+
+    def _clean_history_after_stop(self):
+        """Remove the trailing assistant message with orphaned tool_calls.
+
+        When stop is triggered during plan/tool approval, the conversation
+        history contains an AIMessage with tool_calls but no matching tool
+        responses.  Strip it so the next chat_once call has valid history.
+        """
+        if not self.conversation_history:
+            return
+        # Walk backwards — find the last assistant message with tool_calls
+        for i in range(len(self.conversation_history) - 1, -1, -1):
+            msg = self.conversation_history[i]
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                # Check for matching tool responses after this index
+                tool_call_ids = {tc["id"] for tc in msg["tool_calls"]}
+                responded_ids = {
+                    m["tool_call_id"] for m in self.conversation_history[i + 1:]
+                    if m.get("role") == "tool"
+                }
+                if not tool_call_ids.issubset(responded_ids):
+                    self.conversation_history = self.conversation_history[:i] + self.conversation_history[i + 1:]
+                    return
+                break
+            if msg.get("role") != "tool":
+                break
 
     def action_cancel_input(self):
         if self._file_at_trigger_pos >= 0:
