@@ -4047,6 +4047,12 @@ class Agent:
                         continue
                     messages.append(lc_msg)
 
+            # Detect interrupted task and inject context if user wants to continue
+            if message:
+                continuation_context = self._detect_interrupted_task(messages, message)
+                if continuation_context:
+                    messages.append(HumanMessage(content=continuation_context))
+
             if message:
                 if is_prompt_injection(message):
                     return {"status": "error", "message": "Security Warning: Potential prompt injection detected. Message blocked."}
