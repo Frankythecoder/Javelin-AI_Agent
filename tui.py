@@ -684,6 +684,11 @@ class AgentTUI(App):
                 self.working_dir,
             )
 
+    def action_quit(self):
+        log = self.query_one("#chat-log", RichLog)
+        log.write("\n[bold gold1]Goodbye! Thanks for using Javelin.[/]")
+        self.set_timer(0.5, lambda: self.exit())
+
     def action_stop_agent(self):
         if self.agent:
             self.agent.control.stop()
