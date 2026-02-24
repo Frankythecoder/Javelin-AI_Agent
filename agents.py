@@ -3759,6 +3759,9 @@ class Agent:
         # Test hook: set to a node name to simulate a failure there
         self._test_fail_node = None
 
+        # Conversation summary for memory across trimmed messages
+        self._conversation_summary = None
+
         # System instruction for agentic behavior
         self.system_instruction = """
         You are an expert AI software engineer. When performing tasks:
@@ -4422,6 +4425,10 @@ class Agent:
         Trim message history to stay within token limits.
         Keeps the system message and ensures tool messages are not separated from their tool_calls.
         Works with both LangChain message objects and plain dicts.
+
+        When trimming occurs, generates an LLM summary of the dropped messages
+        and inserts it as a SystemMessage after the main system prompt, so the
+        agent retains awareness of earlier conversation context.
         """
         if len(messages) <= self.max_history + 1:
             return messages
@@ -4447,14 +4454,99 @@ class Agent:
         while start_index > 1 and _is_tool(messages[start_index]):
             start_index -= 1
 
+        # Collect messages that will be dropped (excluding system message)
+        dropped_start = 1 if is_system else 0
+        dropped_messages = messages[dropped_start:start_index]
+
         recent_messages = messages[start_index:]
+
+        # Generate summary of dropped messages if there are any
+        if dropped_messages:
+            # Only summarize LangChain message objects (not dicts) to avoid
+            # double-summarizing when called from execute_dry_run
+            has_langchain_msgs = any(
+                isinstance(m, (HumanMessage, AIMessage, ToolMessage))
+                for m in dropped_messages
+            )
+            if has_langchain_msgs:
+                self._conversation_summary = self._summarize_messages(dropped_messages)
 
         trimmed = []
         if system_message:
             trimmed.append(system_message)
+
+        # Insert conversation summary as a SystemMessage right after the system prompt
+        if self._conversation_summary:
+            summary_msg = SystemMessage(
+                content=f"[Conversation context from earlier messages]\n{self._conversation_summary}"
+            )
+            trimmed.append(summary_msg)
+
         trimmed.extend(recent_messages)
 
         return trimmed
+
+    def _summarize_messages(self, messages: List[Any]) -> str:
+        """Summarize a list of messages into a concise context string using the LLM.
+
+        Called when _trim_messages is about to drop older messages, so the agent
+        retains awareness of earlier conversation context.
+
+        Args:
+            messages: List of LangChain message objects to summarize.
+
+        Returns:
+            A short summary string (3-5 bullet points).
+        """
+        # Build a plain-text transcript of the messages to summarize
+        transcript_parts = []
+        for msg in messages:
+            if isinstance(msg, HumanMessage):
+                transcript_parts.append(f"User: {msg.content}")
+            elif isinstance(msg, AIMessage):
+                text = msg.content or ""
+                if msg.tool_calls:
+                    tool_names = ", ".join(tc["name"] for tc in msg.tool_calls)
+                    text += f" [Called tools: {tool_names}]"
+                transcript_parts.append(f"Assistant: {text}")
+            elif isinstance(msg, ToolMessage):
+                # Truncate long tool results to keep the summarization prompt small
+                content = msg.content[:500] if len(msg.content) > 500 else msg.content
+                transcript_parts.append(f"Tool ({msg.name}): {content}")
+
+        transcript = "\n".join(transcript_parts)
+
+        # If there's an existing summary, include it so the LLM extends rather than restarts
+        existing_context = ""
+        if self._conversation_summary:
+            existing_context = (
+                f"Previous conversation summary:\n{self._conversation_summary}\n\n"
+                "The following messages occurred AFTER the above summary. "
+                "Update the summary to include this new context.\n\n"
+            )
+
+        try:
+            resp = self.llm.invoke([
+                SystemMessage(content=(
+                    "You are a conversation summarizer. Produce a concise summary "
+                    "in 3-5 bullet points. Focus on: what the user asked for, what "
+                    "was accomplished, what files/paths were involved, and any "
+                    "unfinished work or errors. Be factual and brief."
+                )),
+                HumanMessage(content=(
+                    f"{existing_context}"
+                    f"Conversation to summarize:\n\n{transcript}\n\n"
+                    "Summary:"
+                )),
+            ])
+            summary = resp.content.strip() if resp.content else ""
+            if summary:
+                return summary
+        except Exception as e:
+            print(f"[memory] Summary generation failed: {e}")
+
+        # Fallback: return a basic extraction if LLM fails
+        return self._conversation_summary or ""
 
     def generate_code(self, task_description: str, language: str = "python", stepwise: bool = True) -> str:
         """
