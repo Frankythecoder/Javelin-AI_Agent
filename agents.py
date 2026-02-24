@@ -4548,6 +4548,93 @@ class Agent:
         # Fallback: return a basic extraction if LLM fails
         return self._conversation_summary or ""
 
+    def _detect_interrupted_task(self, messages: List[Any], user_message: str) -> Optional[str]:
+        """Detect if the previous conversation was interrupted and the user wants to continue.
+
+        Scans the last messages for interruption patterns (denied tools, errors,
+        incomplete tool sequences) and checks if the user's new message is a
+        "continue" intent.
+
+        Args:
+            messages: List of LangChain message objects (the current conversation).
+            user_message: The user's new message text.
+
+        Returns:
+            A context string to inject before the user's message, or None if no
+            continuation is detected.
+        """
+        if not user_message or not messages:
+            return None
+
+        # Check if user message is a "continue" intent
+        continue_phrases = {
+            "continue", "go on", "resume", "keep going", "try again", "retry",
+            "proceed", "carry on", "go ahead", "finish it", "complete it",
+            "do it", "yes continue", "yes go on", "please continue",
+        }
+        normalized = user_message.lower().strip().rstrip(".!?")
+        if normalized not in continue_phrases:
+            return None
+
+        # Scan last 5 messages for interruption signals
+        recent = messages[-5:] if len(messages) >= 5 else messages
+        interruption_context = None
+
+        # Pattern 1: Assistant has tool_calls but no matching tool responses
+        for i, msg in enumerate(recent):
+            if isinstance(msg, AIMessage) and msg.tool_calls:
+                tool_call_ids = {tc["id"] for tc in msg.tool_calls}
+                # Check if ALL tool calls have corresponding ToolMessage responses
+                remaining = messages[messages.index(msg) + 1:]
+                responded_ids = {
+                    m.tool_call_id for m in remaining
+                    if isinstance(m, ToolMessage)
+                }
+                unresponded = tool_call_ids - responded_ids
+                if unresponded:
+                    tool_names = [
+                        tc["name"] for tc in msg.tool_calls
+                        if tc["id"] in unresponded
+                    ]
+                    interruption_context = (
+                        f"The agent was about to execute tools [{', '.join(tool_names)}] "
+                        f"but execution was interrupted before they completed."
+                    )
+                    break
+
+        # Pattern 2: Last tool message contains denial
+        if not interruption_context:
+            for msg in reversed(recent):
+                if isinstance(msg, ToolMessage):
+                    content_lower = msg.content.lower()
+                    if "denied" in content_lower or "user has denied" in content_lower:
+                        interruption_context = (
+                            f"The user previously denied the tool '{msg.name}'. "
+                            f"The task was not completed."
+                        )
+                    break
+
+        # Pattern 3: Last assistant message has error content
+        if not interruption_context:
+            for msg in reversed(recent):
+                if isinstance(msg, AIMessage):
+                    content_lower = (msg.content or "").lower()
+                    if any(kw in content_lower for kw in ["error", "failed", "could not", "unable to"]):
+                        interruption_context = (
+                            f"The previous task encountered an issue. "
+                            f"Last agent message: {(msg.content or '')[:200]}"
+                        )
+                    break
+
+        if not interruption_context:
+            return None
+
+        return (
+            f"[System note: The previous task was interrupted. "
+            f"Context: {interruption_context} "
+            f"The user wants to continue. Resume the task from where it left off.]"
+        )
+
     def generate_code(self, task_description: str, language: str = "python", stepwise: bool = True) -> str:
         """
         Generate complex code using the LLM with advanced prompt engineering.
