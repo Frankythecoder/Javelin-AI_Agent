@@ -264,7 +264,7 @@ class AgentTUI(App):
 
     def _init_agent(self):
         client = OpenAI(api_key=django_settings.OPENAI_API_KEY)
-        self.agent = Agent(client, "gpt-4o", get_user_message=None, tools=ALL_TOOLS)
+        self.agent = Agent(client, "gpt-4.1", get_user_message=None, tools=ALL_TOOLS, light_model_name="gpt-4.1-mini")
 
     # ── Input handling ────────────────────────────────────────────
 

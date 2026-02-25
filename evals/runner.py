@@ -77,10 +77,10 @@ def run_evals(output_file='results.json'):
         FIND_DIRECTORY_BROADLY_DEFINITION
     ]
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
-    model_name = 'gpt-4o'
-    
+    model_name = 'gpt-4.1'
+
     # We don't need a real get_user_message for chat_once
-    agent = Agent(client, model_name, lambda: ("", False), tools)
+    agent = Agent(client, model_name, lambda: ("", False), tools, light_model_name='gpt-4.1-mini')
     
     results = []
     total_start_time = time.time()
