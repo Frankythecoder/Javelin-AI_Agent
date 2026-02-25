@@ -3700,7 +3700,7 @@ def main():
         LIST_BOOKINGS_DEFINITION,
         CANCEL_BOOKING_DEFINITION,
     ]
-    model_name = 'gpt-4o'
+    model_name = 'gpt-4.1'
 
     def get_user_message():
         try:
@@ -3709,7 +3709,7 @@ def main():
         except EOFError:
             return "", False
 
-    agent = Agent(client, model_name, get_user_message, tools)
+    agent = Agent(client, model_name, get_user_message, tools, light_model_name='gpt-4.1-mini')
     try:
         agent.run()
     except Exception as e:
@@ -4186,6 +4186,7 @@ class Agent:
                 ))
 
             # Run the graph for follow-up in per-tool mode
+            # Use task_class="heavy" to skip re-classification (dry-run execution is inherently heavy)
             initial_state: AgentState = {
                 "messages": self._trim_messages(messages),
                 "use_pending": True,
@@ -4197,7 +4198,7 @@ class Agent:
                 "stopped": self.control.stopped,
                 "tools_enabled": self.control.tools_enabled,
                 "execution_path": ["__start__"],
-                "task_class": "",
+                "task_class": "heavy",
             }
 
             result = self._graph.invoke(initial_state, {"recursion_limit": 25})
