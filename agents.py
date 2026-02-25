@@ -3728,10 +3728,11 @@ class AgentState(TypedDict):
     stopped: bool
     tools_enabled: bool
     execution_path: list
+    task_class: str
 
 
 class Agent:
-    def __init__(self, client, model_name, get_user_message, tools: List[ToolDefinition], max_history: int = 15):
+    def __init__(self, client, model_name, get_user_message, tools: List[ToolDefinition], max_history: int = 15, light_model_name: str = "gpt-4.1-mini"):
         self.client = client
         self.model_name = model_name
         self.get_user_message = get_user_message
@@ -3750,6 +3751,14 @@ class Agent:
             request_timeout=30,
         )
         self.llm_with_tools = self.llm.bind_tools(self.langchain_tools)
+
+        # Light model for simple tasks (email, templates, formatting)
+        self.llm_mini = ChatOpenAI(
+            model=light_model_name,
+            api_key=client.api_key,
+            request_timeout=30,
+        )
+        self.llm_mini_with_tools = self.llm_mini.bind_tools(self.langchain_tools)
 
         # Keep for backward compat
         self.openai_tools = self._convert_tools_to_openai_format()
