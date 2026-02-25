@@ -260,11 +260,36 @@ class AgentTUI(App):
         self._init_agent()
         if self.load_session_id:
             self._do_load_session(self.load_session_id)
+        else:
+            self._show_welcome()
         self.query_one("#input-box", Input).focus()
 
     def _init_agent(self):
         client = OpenAI(api_key=django_settings.OPENAI_API_KEY)
         self.agent = Agent(client, "gpt-4.1", get_user_message=None, tools=ALL_TOOLS, light_model_name="gpt-4.1-mini")
+
+    def _show_welcome(self):
+        log = self.query_one("#chat-log", RichLog)
+        logo = (
+            "  [bold dodger_blue1]"
+            "     ██╗ █████╗ ██╗   ██╗███████╗██╗     ██╗███╗   ██╗\n"
+            "     ██║██╔══██╗██║   ██║██╔════╝██║     ██║████╗  ██║\n"
+            "     ██║███████║██║   ██║█████╗  ██║     ██║██╔██╗ ██║\n"
+            "██   ██║██╔══██║╚██╗ ██╔╝██╔══╝  ██║     ██║██║╚██╗██║\n"
+            "╚█████╔╝██║  ██║ ╚████╔╝ ███████╗███████╗██║██║ ╚████║\n"
+            " ╚════╝ ╚═╝  ╚═╝  ╚═══╝  ╚══════╝╚══════╝╚═╝╚═╝  ╚═══╝"
+            "[/]\n"
+        )
+        info = (
+            "  [dim]Your AI-powered coding assistant.[/]\n\n"
+            "  [bold]Quick start:[/]\n"
+            "    [bold]/help[/]       [dim]Show all commands[/]\n"
+            "    [bold]/save[/]       [dim]Save your session[/]\n"
+            "    [bold]/sessions[/]   [dim]Browse past sessions[/]\n"
+            "    [bold]/tools[/]      [dim]Toggle tool access[/]\n\n"
+            "  [dim]Type a message below to begin.[/]"
+        )
+        log.write(logo + info)
 
     # ── Input handling ────────────────────────────────────────────
 
