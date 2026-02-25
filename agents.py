@@ -3831,6 +3831,47 @@ class Agent:
 
         # -- Graph nodes --------------------------------------------------
 
+        def classify_task(state: AgentState) -> dict:
+            """Classify the user's message as heavy or light using the mini model."""
+            path = state.get("execution_path", []) + ["classify_task"]
+
+            # If task_class is already set (re-entry after tool execution), skip
+            if state.get("task_class"):
+                return {"execution_path": path}
+
+            # Extract the latest user message
+            user_msg = ""
+            for msg in reversed(state["messages"]):
+                if isinstance(msg, HumanMessage):
+                    user_msg = msg.content
+                    break
+
+            # No user message (e.g. tool approval continuation) → default heavy
+            if not user_msg:
+                return {"task_class": "heavy", "execution_path": path}
+
+            try:
+                classification = agent_self.llm_mini.invoke([
+                    SystemMessage(content=(
+                        "Classify this user request into exactly one category. "
+                        "Reply with ONLY the word \"heavy\" or \"light\".\n\n"
+                        "heavy: multi-step tasks, code generation/editing, debugging, "
+                        "file operations, vision/image analysis, tool-heavy workflows, "
+                        "complex reasoning, planning, architecture decisions, GitHub "
+                        "operations, browser automation, travel booking.\n\n"
+                        "light: email/letter drafting, template filling, text formatting, "
+                        "simple text generation, document content writing, presentation content."
+                    )),
+                    HumanMessage(content=user_msg)
+                ])
+                task_class = classification.content.strip().lower()
+                if task_class not in ("heavy", "light"):
+                    task_class = "heavy"
+            except Exception:
+                task_class = "heavy"
+
+            return {"task_class": task_class, "execution_path": path}
+
         def call_model(state: AgentState) -> dict:
             """Invoke the LLM with current messages and bound tools."""
             path = state.get("execution_path", []) + ["call_model"]
@@ -3840,7 +3881,8 @@ class Agent:
                 if agent_self._test_fail_node == "call_model":
                     agent_self._test_fail_node = None
                     raise ConnectionError("Simulated failure: Could not reach LLM API (no internet connection)")
-                response = agent_self.llm_with_tools.invoke(state["messages"])
+                llm = agent_self.llm_with_tools if state.get("task_class", "heavy") == "heavy" else agent_self.llm_mini_with_tools
+                response = llm.invoke(state["messages"])
                 return {"messages": state["messages"] + [response], "execution_path": path}
             except Exception as e:
                 error_path = state.get("execution_path", []) + ["call_model \u2717"]
@@ -3998,12 +4040,14 @@ class Agent:
         # -- Assemble graph -----------------------------------------------
 
         graph = StateGraph(AgentState)
+        graph.add_node("classify_task", classify_task)
         graph.add_node("call_model", call_model)
         graph.add_node("collect_dry_run", collect_dry_run)
         graph.add_node("execute_or_hold_tools", execute_or_hold_tools)
         graph.add_node("format_output", format_output)
 
-        graph.set_entry_point("call_model")
+        graph.set_entry_point("classify_task")
+        graph.add_edge("classify_task", "call_model")
         graph.add_conditional_edges("call_model", route_after_model, {
             "format_output": "format_output",
             "collect_dry_run": "collect_dry_run",
