@@ -4127,6 +4127,7 @@ class Agent:
                 "stopped": self.control.stopped,
                 "tools_enabled": self.control.tools_enabled,
                 "execution_path": ["__start__"],
+                "task_class": "",
             }
 
             result = self._graph.invoke(initial_state, {"recursion_limit": 25})
@@ -4196,6 +4197,7 @@ class Agent:
                 "stopped": self.control.stopped,
                 "tools_enabled": self.control.tools_enabled,
                 "execution_path": ["__start__"],
+                "task_class": "",
             }
 
             result = self._graph.invoke(initial_state, {"recursion_limit": 25})
