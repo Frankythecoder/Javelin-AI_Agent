@@ -493,7 +493,19 @@ def list_files_tool(args: Dict[str, Any]) -> str:
     except Exception as e:
         return f"Error: {str(e)}"
     
+def _normalize_url(url: str) -> str:
+    """Clean up an LLM-constructed URL before passing it to Playwright."""
+    url = url.strip().strip('"').strip("'").strip()
+    if url and not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    return url
+
+
 def playwright_mcp_tool(args):
+    # --- URL normalization (fixes LLM-constructed URLs) ---
+    if "url" in args:
+        args["url"] = _normalize_url(args["url"])
+
     import asyncio
     import sys
     from mcp import ClientSession
