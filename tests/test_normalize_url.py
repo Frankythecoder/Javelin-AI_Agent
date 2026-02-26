@@ -34,3 +34,16 @@ class TestNormalizeUrl:
 
     def test_no_scheme_with_whitespace(self):
         assert _normalize_url("  www.google.com  ") == "https://www.google.com"
+
+    def test_empty_string_raises(self):
+        import pytest
+        with pytest.raises(ValueError, match="URL is empty"):
+            _normalize_url("")
+
+    def test_whitespace_only_raises(self):
+        import pytest
+        with pytest.raises(ValueError, match="URL is empty"):
+            _normalize_url("   ")
+
+    def test_preserves_ftp_scheme(self):
+        assert _normalize_url("ftp://example.com") == "ftp://example.com"
