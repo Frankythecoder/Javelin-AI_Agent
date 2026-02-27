@@ -526,10 +526,17 @@ def playwright_mcp_tool(args):
                 result = await session.call_tool("navigate", args)
                 return result.content[0].text if result.content else ""
 
-    try:
-        return asyncio.run(_call())
-    except Exception as e:
-        return f"Playwright MCP error: {e}"
+    last_err = None
+    for _attempt in range(2):
+        try:
+            return asyncio.run(_call())
+        except OSError as e:
+            # Transient pipe/fd errors on Windows — retry once
+            last_err = e
+            continue
+        except Exception as e:
+            return f"Playwright MCP error: {e}"
+    return f"Playwright MCP error: {last_err}"
 
 def change_working_directory_tool(args: Dict[str, Any]) -> str:
     """Change the current working directory of the agent to a different project or folder."""
