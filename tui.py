@@ -655,7 +655,7 @@ class AgentTUI(App):
             self.conversation_history = result.get("history", self.conversation_history)
             response = result.get("response", "")
             if response:
-                log.write(f"[bold gold1]Agent:[/] {response}")
+                log.write(f"[bold gold1]Javelin:[/] {response}")
 
         elif approval_type == "pending":
             log.write("[red]Tool(s) denied.[/]\n")
