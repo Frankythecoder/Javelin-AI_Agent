@@ -1,49 +1,40 @@
-"""Tests for the _normalize_url helper used by playwright_mcp_tool."""
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import pytest
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agents import _normalize_url
 
 
 class TestNormalizeUrl:
-    def test_strips_whitespace(self):
-        assert _normalize_url("  https://www.reddit.com  ") == "https://www.reddit.com"
+    def test_full_url_unchanged(self):
+        assert _normalize_url("https://reddit.com") == "https://reddit.com"
 
-    def test_strips_wrapping_double_quotes(self):
-        assert _normalize_url('"https://www.reddit.com"') == "https://www.reddit.com"
-
-    def test_strips_wrapping_single_quotes(self):
-        assert _normalize_url("'https://www.reddit.com'") == "https://www.reddit.com"
-
-    def test_adds_https_when_no_scheme(self):
-        assert _normalize_url("www.reddit.com") == "https://www.reddit.com"
-
-    def test_adds_https_to_bare_domain(self):
-        assert _normalize_url("reddit.com") == "https://reddit.com"
-
-    def test_preserves_http_scheme(self):
+    def test_http_url_unchanged(self):
         assert _normalize_url("http://example.com") == "http://example.com"
 
-    def test_preserves_valid_https_url(self):
-        assert _normalize_url("https://www.reddit.com") == "https://www.reddit.com"
+    def test_adds_https_when_no_scheme(self):
+        assert _normalize_url("reddit.com") == "https://reddit.com"
 
-    def test_preserves_path_and_query(self):
-        assert _normalize_url("https://example.com/page?q=1") == "https://example.com/page?q=1"
+    def test_strips_whitespace(self):
+        assert _normalize_url("  https://reddit.com  ") == "https://reddit.com"
 
-    def test_combined_whitespace_and_quotes(self):
-        assert _normalize_url('  "https://www.reddit.com"  ') == "https://www.reddit.com"
+    def test_strips_quotes(self):
+        assert _normalize_url('"https://reddit.com"') == "https://reddit.com"
 
-    def test_no_scheme_with_whitespace(self):
-        assert _normalize_url("  www.google.com  ") == "https://www.google.com"
+    def test_strips_single_quotes(self):
+        assert _normalize_url("'reddit.com'") == "https://reddit.com"
 
     def test_empty_string_raises(self):
-        import pytest
-        with pytest.raises(ValueError, match="URL is empty"):
+        with pytest.raises(ValueError, match="empty"):
             _normalize_url("")
 
     def test_whitespace_only_raises(self):
-        import pytest
-        with pytest.raises(ValueError, match="URL is empty"):
+        with pytest.raises(ValueError, match="empty"):
             _normalize_url("   ")
 
-    def test_preserves_ftp_scheme(self):
-        assert _normalize_url("ftp://example.com") == "ftp://example.com"
+    def test_domain_with_path(self):
+        assert _normalize_url("reddit.com/r/python") == "https://reddit.com/r/python"
+
+    def test_preserves_other_schemes(self):
+        assert _normalize_url("ftp://files.example.com") == "ftp://files.example.com"

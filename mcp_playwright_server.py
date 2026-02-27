@@ -6,7 +6,7 @@ server = FastMCP("playwright")
 
 
 def _toggle_www(url: str) -> str:
-    """Toggle the www. prefix on a URL for retry purposes."""
+    """Toggle www. prefix for retry on navigation failure."""
     for scheme in ("https://www.", "http://www."):
         if url.startswith(scheme):
             return url.replace(scheme, scheme.replace("www.", ""), 1)
@@ -23,15 +23,15 @@ async def navigate(url: str, screenshot: str = "page.png"):
         try:
             page = await browser.new_page()
 
-            # First attempt with the original URL
+            # First attempt
             try:
                 await page.goto(url, timeout=60000)
             except Exception:
-                # Retry with toggled www. variant
+                # Retry with www variant
                 alt_url = _toggle_www(url)
                 try:
                     await page.goto(alt_url, timeout=60000)
-                    url = alt_url  # update so the response reflects what actually loaded
+                    url = alt_url
                 except Exception as retry_err:
                     return json.dumps({
                         "error": f"Navigation failed for both {url} and {alt_url}: {retry_err}"
@@ -40,7 +40,7 @@ async def navigate(url: str, screenshot: str = "page.png"):
             try:
                 await page.wait_for_load_state("networkidle", timeout=15000)
             except Exception:
-                pass  # proceed with whatever has loaded
+                pass  # Page is still usable even without networkidle
 
             await page.screenshot(path=screenshot, full_page=True)
             text = await page.inner_text("body")
@@ -51,9 +51,7 @@ async def navigate(url: str, screenshot: str = "page.png"):
                 "text": text[:6000]
             })
         except Exception as e:
-            return json.dumps({
-                "error": f"Browser error: {e}"
-            })
+            return json.dumps({"error": f"Browser error: {e}"})
         finally:
             await browser.close()
 
