@@ -510,33 +510,53 @@ def playwright_mcp_tool(args):
             return f"Playwright MCP error: {e}"
 
     import asyncio
-    import sys
-    from mcp import ClientSession
-    from mcp.client.stdio import stdio_client, StdioServerParameters
+    from playwright.async_api import async_playwright
+    from mcp_playwright_server import _toggle_www
 
-    async def _call():
-        server_params = StdioServerParameters(
-            command=sys.executable,
-            args=["-B", os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_playwright_server.py")],
-            cwd=os.path.dirname(os.path.abspath(__file__))
-        )
-        async with stdio_client(server_params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                result = await session.call_tool("navigate", args)
-                return result.content[0].text if result.content else ""
+    url = args.get("url", "")
+    screenshot = args.get("screenshot", "page.png")
 
-    last_err = None
-    for _attempt in range(2):
-        try:
-            return asyncio.run(_call())
-        except OSError as e:
-            # Transient pipe/fd errors on Windows — retry once
-            last_err = e
-            continue
-        except Exception as e:
-            return f"Playwright MCP error: {e}"
-    return f"Playwright MCP error: {last_err}"
+    async def _navigate():
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            try:
+                page = await browser.new_page()
+
+                try:
+                    await page.goto(url, timeout=60000)
+                except Exception:
+                    alt_url = _toggle_www(url)
+                    try:
+                        await page.goto(alt_url, timeout=60000)
+                    except Exception as retry_err:
+                        return json.dumps({
+                            "error": f"Navigation failed for both {url} and {alt_url}: {retry_err}"
+                        })
+                    # Use the successful alt URL for the response
+                    args["url"] = alt_url
+
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=15000)
+                except Exception:
+                    pass
+
+                await page.screenshot(path=screenshot, full_page=True)
+                text = await page.inner_text("body")
+
+                return json.dumps({
+                    "url": args.get("url", url),
+                    "screenshot": screenshot,
+                    "text": text[:6000]
+                })
+            except Exception as e:
+                return json.dumps({"error": f"Browser error: {e}"})
+            finally:
+                await browser.close()
+
+    try:
+        return asyncio.run(_navigate())
+    except Exception as e:
+        return f"Playwright MCP error: {e}"
 
 def change_working_directory_tool(args: Dict[str, Any]) -> str:
     """Change the current working directory of the agent to a different project or folder."""
