@@ -439,7 +439,7 @@ class AgentTUI(App):
         elif cmd == "/stop":
             if self.agent:
                 self.agent.control.stop()
-            log.write("[red]Agent stopped.[/]")
+            log.write("[red]Javelin stopped.[/]")
         elif cmd == "/tools":
             if self.agent:
                 if self.agent.control.tools_enabled:
@@ -474,7 +474,7 @@ class AgentTUI(App):
             if role == "user":
                 log.write(f"[bold dodger_blue1]You:[/] {content}")
             elif role == "assistant" and content:
-                log.write(f"[bold gold1]Agent:[/] {content}")
+                log.write(f"[bold gold1]Javelin:[/] {content}")
             elif role == "tool":
                 name = msg.get("name", "tool")
                 short = content[:200] + "..." if len(content) > 200 else content
@@ -515,7 +515,7 @@ class AgentTUI(App):
         elif status == "pending":
             self._show_pending_tools(result)
         elif status == "success":
-            log.write(f"\n[bold gold1]Agent:[/] {response}")
+            log.write(f"\n[bold gold1]Javelin:[/] {response}")
             self._show_execution_path(result)
             self._auto_save()
             self._update_header("Ready")
@@ -553,7 +553,7 @@ class AgentTUI(App):
         response = result.get("response", "")
 
         if response:
-            log.write(f"\n[bold gold1]Agent:[/] {response}")
+            log.write(f"\n[bold gold1]Javelin:[/] {response}")
 
         log.write(f"\n[bold yellow]--- Tool Approval Required ---[/]")
         for tool in pending:
@@ -622,7 +622,7 @@ class AgentTUI(App):
         elif status == "pending":
             self._show_pending_tools(result)
         elif status == "success":
-            log.write(f"\n[bold gold1]Agent:[/] {response}")
+            log.write(f"\n[bold gold1]Javelin:[/] {response}")
             self._show_execution_path(result)
             self._auto_save()
             self._update_header("Ready")
@@ -673,7 +673,7 @@ class AgentTUI(App):
             self.conversation_history = result.get("history", self.conversation_history)
             response = result.get("response", "")
             if response:
-                log.write(f"[bold gold1]Agent:[/] {response}")
+                log.write(f"[bold gold1]Javelin:[/] {response}")
 
         self._auto_save()
         self._update_header("Ready")
