@@ -9,9 +9,8 @@ __pycache__/
 # Django migrations directories
 **/migrations/**
 
-# All package init files
-__init__.py
-**/__init__.py
+# Chat app init (Django auto-generated)
+chat/__init__.py
 
 # Build artifacts
 *.egg-info/
