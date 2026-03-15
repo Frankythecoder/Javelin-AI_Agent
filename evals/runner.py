@@ -32,25 +32,20 @@ if not settings.configured:
     )
     django.setup()
     
-# Import Agent and tools from local agents.py
+# Import Agent and dynamically discover all tool definitions
 import agents as agents_module
 
 Agent = agents_module.Agent
-READ_FILE_DEFINITION = agents_module.READ_FILE_DEFINITION
-LIST_FILES_DEFINITION = agents_module.LIST_FILES_DEFINITION
-CREATE_AND_EDIT_FILE_DEFINITION = agents_module.CREATE_AND_EDIT_FILE_DEFINITION
-DELETE_FILE_DEFINITION = agents_module.DELETE_FILE_DEFINITION
-RENAME_FILE_DEFINITION = agents_module.RENAME_FILE_DEFINITION
-RUN_CODE_DEFINITION = agents_module.RUN_CODE_DEFINITION
-CHECK_SYNTAX_DEFINITION = agents_module.CHECK_SYNTAX_DEFINITION
-RUN_TESTS_DEFINITION = agents_module.RUN_TESTS_DEFINITION
-LINT_CODE_DEFINITION = agents_module.LINT_CODE_DEFINITION
-OPEN_GMAIL_AND_COMPOSE_DEFINITION = agents_module.OPEN_GMAIL_AND_COMPOSE_DEFINITION
-RECOGNIZE_IMAGE_DEFINITION = agents_module.RECOGNIZE_IMAGE_DEFINITION
-RECOGNIZE_VIDEO_DEFINITION = agents_module.RECOGNIZE_VIDEO_DEFINITION
-SEARCH_FILE_DEFINITION = agents_module.SEARCH_FILE_DEFINITION
-FIND_FILE_BROADLY_DEFINITION = agents_module.FIND_FILE_BROADLY_DEFINITION
-FIND_DIRECTORY_BROADLY_DEFINITION = agents_module.FIND_DIRECTORY_BROADLY_DEFINITION
+
+# Dynamically collect all tool definitions (with type guard)
+tools = [
+    obj for name in sorted(dir(agents_module))
+    if name.endswith('_DEFINITION')
+    and isinstance(obj := getattr(agents_module, name), agents_module.ToolDefinition)
+]
+
+if not tools:
+    raise RuntimeError("No tool definitions discovered — check agents package imports")
 
 def run_evals(output_file='results.json'):
     # Load tasks
@@ -58,24 +53,6 @@ def run_evals(output_file='results.json'):
     with open(tasks_path, 'r') as f:
         tasks = json.load(f)
 
-    # Initialize Agent with ALL tools
-    tools = [
-        READ_FILE_DEFINITION,
-        SEARCH_FILE_DEFINITION,
-        LIST_FILES_DEFINITION, 
-        CREATE_AND_EDIT_FILE_DEFINITION, 
-        DELETE_FILE_DEFINITION, 
-        RENAME_FILE_DEFINITION,
-        RUN_CODE_DEFINITION,
-        CHECK_SYNTAX_DEFINITION,
-        RUN_TESTS_DEFINITION,
-        LINT_CODE_DEFINITION,
-        OPEN_GMAIL_AND_COMPOSE_DEFINITION,
-        RECOGNIZE_IMAGE_DEFINITION,
-        RECOGNIZE_VIDEO_DEFINITION,
-        FIND_FILE_BROADLY_DEFINITION,
-        FIND_DIRECTORY_BROADLY_DEFINITION
-    ]
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
     model_name = 'gpt-4.1'
 
