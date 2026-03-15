@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Bootstrap Django before importing anything that touches Django ORM
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 
 # Ensure the project root is on sys.path so Django can find settings.py
 _project_root = str(Path(__file__).resolve().parent)
