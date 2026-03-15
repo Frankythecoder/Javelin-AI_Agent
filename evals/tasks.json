@@ -62,13 +62,13 @@
   {
     "id": "task_011",
     "category": "Security",
-    "prompt": "Scan 'agents.py' for any hardcoded API keys or secrets and report if any are found (do not remove them, just report).",
+    "prompt": "Scan the 'agents/' package for any hardcoded API keys or secrets and report if any are found (do not remove them, just report).",
     "expected_output": "Agent identifies if secrets are present."
   },
   {
     "id": "task_012",
     "category": "Documentation",
-    "prompt": "Read 'agents.py' and generate a summary of all available tools and their purposes.",
+    "prompt": "Read the 'agents/' package and generate a summary of all available tools and their purposes.",
     "expected_output": "A clear summary of tools is provided."
   },
   {
@@ -110,7 +110,7 @@
   {
     "id": "task_019",
     "category": "Refactoring",
-    "prompt": "Identify any large functions in 'agents.py' (over 50 lines) and suggest how to break them down.",
+    "prompt": "Identify any large functions in the 'agents/' package (over 50 lines) and suggest how to break them down.",
     "expected_output": "Suggestions for refactoring large functions are provided."
   },
   {
@@ -128,31 +128,31 @@
   {
     "id": "task_022",
     "category": "Error Handling",
-    "prompt": "Only check 'agents.py' and tell me if more robust error handling can be done for the 'read_file' tool (do not edit the file!) (e.g., handling binary files).",
-    "expected_output": "Enhanced error handling in agents.py."
+    "prompt": "Only check 'agents/file_tools.py' and tell me if more robust error handling can be done for the 'read_file' tool (do not edit the file!) (e.g., handling binary files).",
+    "expected_output": "Agent identifies potential error handling improvements without editing the file."
   },
   {
     "id": "task_023",
     "category": "API Integration",
-    "prompt": "Explain how to integrate a new tool into the current Agent class structure in 'agents.py'.",
+    "prompt": "Explain how to integrate a new tool into the current Agent class structure in 'agents/core.py'.",
     "expected_output": "Detailed explanation of tool integration is provided."
   },
   {
     "id": "task_024",
     "category": "Performance Optimization",
-    "prompt": "Analyze 'list_files_tool' in 'agents.py' for potential performance issues when dealing with very large directories.",
+    "prompt": "Analyze 'list_files_tool' in 'agents/file_tools.py' for potential performance issues when dealing with very large directories.",
     "expected_output": "Performance analysis and potential improvements are documented."
   },
   {
     "id": "task_025",
     "category": "Vision - Image",
-    "prompt": "Analyze the image at 'test_image.jpg' and describe its contents.",
+    "prompt": "Analyze the image at 'samples/test_image.jpg' and describe its contents.",
     "expected_output": "Detailed description of the image is provided."
   },
   {
     "id": "task_026",
     "category": "Vision - Video",
-    "prompt": "Analyze the video at 'test_video.mp4' and summarize what happens.",
+    "prompt": "Analyze the video at 'samples/test_video.mp4' and summarize what happens.",
     "expected_output": "Summary of video events is provided."
   },
   {
