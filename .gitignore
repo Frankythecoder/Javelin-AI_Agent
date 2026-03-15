@@ -17,7 +17,7 @@ chat/__init__.py
 
 # SQLite database
 db.sqlite3
-test_imap.py
-test_image.jpg
-test_video.mp4
+samples/test_imap.py
+samples/test_image.jpg
+samples/test_video.mp4
 NUL
