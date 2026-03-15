@@ -358,5 +358,5 @@ def shutdown_server(request):
 
 def serve_logo(request):
     """Serve the Javelin logo from the project root."""
-    logo_path = os.path.join(settings.BASE_DIR, 'javelin.png')
+    logo_path = os.path.join(settings.BASE_DIR, 'assets', 'javelin.png')
     return FileResponse(open(logo_path, 'rb'), content_type='image/png')
