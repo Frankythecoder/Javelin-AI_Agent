@@ -14,8 +14,8 @@ def _github_mcp_call(tool_name, args):
     async def _call():
         server_params = StdioServerParameters(
             command=sys.executable,
-            args=["-B", os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_github_server.py")],
-            cwd=os.path.dirname(os.path.abspath(__file__))
+            args=["-B", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "mcp_servers", "github_server.py")],
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         )
         async with stdio_client(server_params) as (read, write):
             async with ClientSession(read, write) as session:

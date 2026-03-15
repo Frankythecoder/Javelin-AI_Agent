@@ -29,7 +29,7 @@ def playwright_mcp_tool(args):
 
     import asyncio
     from playwright.async_api import async_playwright
-    from mcp_playwright_server import _toggle_www
+    from mcp_servers.playwright_server import _toggle_www
 
     url = args.get("url", "")
     screenshot = args.get("screenshot", "page.png")

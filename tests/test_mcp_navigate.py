@@ -3,7 +3,7 @@ import sys
 import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from mcp_playwright_server import _toggle_www
+from mcp_servers.playwright_server import _toggle_www
 
 
 class TestToggleWww:
