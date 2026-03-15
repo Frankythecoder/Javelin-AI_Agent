@@ -160,5 +160,53 @@
     "category": "Complex Multi-step",
     "prompt": "Create a python script that generates a plot using matplotlib, saves it as 'plot.png', and then use the recognize_image tool to verify what was plotted.",
     "expected_output": "Plot created, saved, and successfully analyzed by vision tool."
+  },
+  {
+    "id": "task_028",
+    "category": "GitHub Tools",
+    "prompt": "Explain step by step how you would use the available GitHub tools to create a new branch called 'feature/login', commit a file to it, open a pull request, and create a GitHub issue. Describe each tool call and its parameters. Do not actually execute these actions.",
+    "expected_output": "Step-by-step explanation of GitHub tool usage covering branch creation, file commit, PR creation, and issue creation."
+  },
+  {
+    "id": "task_029",
+    "category": "Travel Tools",
+    "prompt": "Explain how you would use the travel tools to search for flights from New York to London on 2025-06-15, book the cheapest option, retrieve the booking details, list all current bookings, and then cancel the booking. Describe each tool call and its parameters. Do not actually execute these actions.",
+    "expected_output": "Step-by-step explanation covering flight search, booking, retrieval, listing, and cancellation."
+  },
+  {
+    "id": "task_030",
+    "category": "Document Creation",
+    "prompt": "Explain how you would create each of the following documents using the available tools: a PDF report titled 'Monthly Sales Summary' with a table, an Excel spreadsheet with sales data, a DOCX document with a project proposal, and a PPTX presentation with three slides. Describe each tool call and its parameters. Do not actually execute.",
+    "expected_output": "Detailed explanation of tool calls for creating PDF, Excel, DOCX, and PPTX documents."
+  },
+  {
+    "id": "task_031",
+    "category": "Document Read/Edit",
+    "prompt": "Explain how you would read and then edit each of the following document types: a PDF file 'report.pdf', a DOCX file 'proposal.docx', an Excel file 'data.xlsx', and a PPTX file 'slides.pptx'. For each, describe the read tool call to inspect contents and the edit tool call to make a change. Do not actually execute.",
+    "expected_output": "Step-by-step explanation of read and edit tool calls for PDF, DOCX, Excel, and PPTX files."
+  },
+  {
+    "id": "task_032",
+    "category": "Audio Recognition",
+    "prompt": "Explain how you would use the audio recognition tool to transcribe or analyze an audio file called 'samples/meeting_recording.wav'. Describe the tool call you would make and what parameters it requires.",
+    "expected_output": "Explanation of the audio recognition tool call with appropriate parameters."
+  },
+  {
+    "id": "task_033",
+    "category": "Directory Navigation",
+    "prompt": "Explain how you would use the change working directory tool to navigate to a subdirectory called 'data/raw' and then list its contents using the list files tool. Describe each step and tool call.",
+    "expected_output": "Step-by-step explanation of directory change and file listing tool calls."
+  },
+  {
+    "id": "task_034",
+    "category": "Browser Automation",
+    "prompt": "Explain how you would use the Playwright MCP tool to automate opening a browser, navigating to a URL, and extracting text from a page. Describe the tool call and its parameters. Do not actually execute.",
+    "expected_output": "Explanation of Playwright MCP tool usage for browser automation."
+  },
+  {
+    "id": "task_035",
+    "category": "Email Composition",
+    "prompt": "Explain how you would compose and send an email using the Gmail tool to 'test@example.com' with the subject 'Meeting Follow-up' and a body summarizing action items. Describe the tool call and its parameters. Do not actually execute.",
+    "expected_output": "Explanation of Gmail compose tool call with recipient, subject, and body parameters."
   }
 ]
