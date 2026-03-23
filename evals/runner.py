@@ -73,6 +73,9 @@ def run_evals(output_file='results.json', eatp_mode='cold', correction_policy_fi
         experience_dir = os.path.join(os.path.expanduser("~"), ".ai_agent", "experiences_eval")
         from agents.experience_store import ExperienceStore
         agent.experience_store = ExperienceStore(persist_dir=experience_dir)
+    elif eatp_mode == 'off':
+        # Disable EATP entirely — no retrieval, no logging, no pollution
+        agent.experience_store = None
 
     # Load correction policy for Phase B
     correction_policy = {}
@@ -87,31 +90,46 @@ def run_evals(output_file='results.json', eatp_mode='cold', correction_policy_fi
     
     for task in tasks:
         print(f"Running task {task['id']}: {task['prompt']}")
-        
+
         task_start_time = time.time()
-        
-        # Track tool calls by checking history before/after (or assuming chat_once does it)
-        # For more accuracy, we could wrap the tool execution or inspect history
-        initial_history_len = 0 # Placeholder if we were tracking across turns
+
+        # Clear session feedback from previous task
+        agent.clear_session_feedback()
         
         response_data = agent.chat_once(conversation_history=[], message=task['prompt'])
         
-        # Handle auto-approval for eval runner
+        # Handle auto-approval for eval runner, with correction policy for Phase B
+        task_policy = correction_policy.get(task['id']) or correction_policy.get(task.get('category'))
         while isinstance(response_data, dict) and response_data.get('status') == 'pending':
             history = response_data.get('history', [])
             pending_tools = response_data.get('pending_tools', [])
-            
+
+            denied_any = False
             for tool_call in pending_tools:
-                # Execute tool and get result
-                result = agent._execute_tool_by_name(tool_call.get('name'), tool_call.get('arguments'))
-                # Append tool result to history
-                history.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.get('id'),
-                    "name": tool_call.get('name'),
-                    "content": result
-                })
-            
+                tool_name = tool_call.get('name')
+                # Apply correction policy: deny specified tools and inject correction
+                if task_policy and tool_name == task_policy.get('deny'):
+                    denied_any = True
+                    correction_text = task_policy.get('correction', f'User denied {tool_name}.')
+                    agent.record_denial(tool_name, "denied")
+                    agent.record_correction(f"User denied {tool_name}. {correction_text}")
+                    # Append denial as a user message so the agent can recover
+                    history.append({
+                        "role": "user",
+                        "content": f"I denied the use of {tool_name}. {correction_text}"
+                    })
+                    # Only apply the policy once per task
+                    task_policy = None
+                else:
+                    # Auto-approve: execute tool and get result
+                    result = agent._execute_tool_by_name(tool_name, tool_call.get('arguments'))
+                    history.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.get('id'),
+                        "name": tool_name,
+                        "content": result
+                    })
+
             # Continue chat with the updated history
             response_data = agent.chat_once(conversation_history=history)
 

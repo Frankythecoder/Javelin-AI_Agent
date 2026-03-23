@@ -89,8 +89,8 @@ class ExperienceRecord:
             tool_results=json.loads(metadata.get("tool_results", "[]")),
             user_corrections=json.loads(metadata.get("user_corrections", "[]")),
             approval_actions=json.loads(metadata.get("approval_actions", "[]")),
-            created_at=datetime.fromisoformat(metadata.get("created_at", datetime.now().isoformat())),
-            last_validated=datetime.fromisoformat(metadata.get("last_validated", datetime.now().isoformat())),
+            created_at=datetime.fromisoformat(metadata["created_at"]) if "created_at" in metadata else datetime.min,
+            last_validated=datetime.fromisoformat(metadata["last_validated"]) if "last_validated" in metadata else datetime.min,
             confirmation_count=metadata.get("confirmation_count", 0),
             schema_version=metadata.get("schema_version", SCHEMA_VERSION),
             embedding_model=metadata.get("embedding_model", EMBEDDING_MODEL),
@@ -130,13 +130,13 @@ class ExperienceStore:
         )
         return [item.embedding for item in response.data]
 
-    def add(self, record: ExperienceRecord) -> None:
+    def add(self, record: ExperienceRecord, skip_dedup: bool = False) -> None:
         """Store an experience record, deduplicating if a near-match exists."""
         with self._lock:
             embedding = self._embed_texts([record.task_description])[0]
 
             # Check for near-duplicates
-            if self._collection.count() > 0:
+            if not skip_dedup and self._collection.count() > 0:
                 results = self._collection.query(
                     query_embeddings=[embedding],
                     n_results=1,
@@ -259,6 +259,25 @@ class ExperienceStore:
             result += section
 
         return result.rstrip()
+
+    def update_rating(self, experience_id: str, rating: int, feedback: str = "") -> bool:
+        """Attach a user rating to an existing experience record.
+
+        Returns True if the record was found and updated.
+        """
+        with self._lock:
+            try:
+                result = self._collection.get(ids=[experience_id], include=["metadatas"])
+                if not result["ids"]:
+                    return False
+                metadata = result["metadatas"][0]
+                metadata["user_rating"] = rating
+                if feedback:
+                    metadata["user_feedback"] = feedback
+                self._collection.update(ids=[experience_id], metadatas=[metadata])
+                return True
+            except Exception:
+                return False
 
     def get_all(self) -> List[ExperienceRecord]:
         """Return all stored experience records."""

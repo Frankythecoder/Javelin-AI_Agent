@@ -2,12 +2,6 @@ from typing import Dict, List, Any, Optional
 from agents.experience_store import ExperienceRecord
 
 
-# Tool categories for args_summary generation
-FILE_TOOLS = {"search_file", "read_file", "list_files", "create_and_edit_file",
-              "delete_file", "rename_file", "find_file_broadly", "find_directory_broadly",
-              "change_working_directory"}
-CODE_TOOLS = {"run_code", "check_syntax", "run_tests", "lint_code"}
-TRAVEL_TOOLS = {"search_flights", "book_travel", "get_booking", "list_bookings", "cancel_booking"}
 CONTENT_FIELDS = {"new_str", "old_str", "content", "body"}
 
 

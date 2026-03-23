@@ -5,12 +5,19 @@ from agents.control import ToolDefinition
 # Module-level holder for last experience ID (set by experience logger after each task)
 _last_experience_id: str = ""
 _last_rating_info: Dict[str, Any] = {}
+_experience_store = None
 
 
 def set_last_experience_id(experience_id: str) -> None:
     """Called by the experience logger after storing a record."""
     global _last_experience_id
     _last_experience_id = experience_id
+
+
+def set_experience_store(store) -> None:
+    """Called by Agent.__init__ to give the feedback tool access to the experience store."""
+    global _experience_store
+    _experience_store = store
 
 
 def get_last_rating() -> Dict[str, Any]:
@@ -32,6 +39,10 @@ def rate_experience_tool(args: Dict[str, Any]) -> str:
         "feedback": feedback,
         "experience_id": _last_experience_id,
     }
+
+    # Persist rating to the experience store if wired up
+    if _experience_store and _last_experience_id:
+        _experience_store.update_rating(_last_experience_id, rating, feedback)
 
     response = f"Rating of {rating}/5 recorded."
     if feedback:

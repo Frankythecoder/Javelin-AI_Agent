@@ -162,6 +162,14 @@ class Agent(AgentMessagesMixin):
         self.experience_store = ExperienceStore()
         self.experience_logger = ExperienceLogger()
 
+        # EATP: Wire feedback tool to experience store
+        from agents.feedback_tools import set_experience_store
+        set_experience_store(self.experience_store)
+
+        # EATP: Session-level correction tracking (populated by callers via record_correction/record_denial)
+        self._session_corrections: List[str] = []
+        self._session_approval_actions: List[Dict[str, Any]] = []
+
         # System instruction for agentic behavior
         self.system_instruction = """
         You are an expert AI software engineer. When performing tasks:
@@ -210,6 +218,23 @@ class Agent(AgentMessagesMixin):
            - ESCALATION: Only report failure to the user AFTER you have made at least 3 genuine attempts to resolve the issue using different approaches. When you do report failure, explain what you tried and why each approach failed.
            - NEVER say "I cannot complete this because X is not installed" or "this requires X which is not available." You have 'run_code' — use it to install X and continue.
         """
+
+    # ----------------------------------------------------------------
+    #  EATP: Session-level correction tracking
+    # ----------------------------------------------------------------
+
+    def record_correction(self, correction_text: str) -> None:
+        """Record a user correction for the current session's experience log."""
+        self._session_corrections.append(correction_text)
+
+    def record_denial(self, tool_name: str, action: str = "denied") -> None:
+        """Record a tool approval/denial action for the current session."""
+        self._session_approval_actions.append({"tool_name": tool_name, "action": action})
+
+    def clear_session_feedback(self) -> None:
+        """Reset session-level corrections/approvals before a new task."""
+        self._session_corrections.clear()
+        self._session_approval_actions.clear()
 
     # ----------------------------------------------------------------
     #  LangGraph: build the execution graph
@@ -485,7 +510,7 @@ class Agent(AgentMessagesMixin):
 
             # Build LangChain message list with EATP augmentation
             system_prompt = self.system_instruction
-            if message:
+            if message and self.experience_store:
                 experiences = self.experience_store.retrieve(message)
                 experience_section = self.experience_store.format_for_prompt(experiences)
                 if experience_section:
@@ -529,20 +554,29 @@ class Agent(AgentMessagesMixin):
             result = self._graph.invoke(initial_state, {"recursion_limit": 25})
 
             # EATP: Log this execution as an experience (only on actual execution, not dry_run)
-            if message and result.get("status") == "success":
+            if message and self.experience_store and result.get("status") == "success":
                 try:
                     # Extract tool executions from response history
                     history = result.get("response_history", [])
                     tool_executions = []
                     for msg in history:
                         if msg.get("role") == "tool":
-                            is_error = msg.get("content", "").startswith("Error")
+                            content = msg.get("content", "")
+                            content_lower = content.lower() if content else ""
+                            is_error = (
+                                content.startswith("Error") or
+                                content.startswith("Exception") or
+                                "Traceback" in content or
+                                content.startswith("FileNotFoundError") or
+                                content.startswith("Permission denied") or
+                                content.startswith("Failed to")
+                            )
                             tool_executions.append({
                                 "name": msg.get("name", ""),
                                 "args": {},
-                                "result": msg.get("content", "")[:200],
+                                "result": content[:200],
                                 "success": not is_error,
-                                "error": msg.get("content", "") if is_error else None,
+                                "error": content if is_error else None,
                             })
                     # Infer task category from tools used
                     used_tools = [msg.get("name", "") for msg in history if msg.get("role") == "tool"]
@@ -554,11 +588,14 @@ class Agent(AgentMessagesMixin):
                         plan_summary=result.get("response", "")[:200],
                         tools_planned=[t["name"] for t in result.get("dry_run_plan", [])],
                         tool_executions=tool_executions,
-                        user_corrections=[],
-                        approval_actions=[],
+                        user_corrections=list(self._session_corrections),
+                        approval_actions=list(self._session_approval_actions),
                         outcome=result.get("status", "success"),
                     )
                     self.experience_store.add(record)
+                    # Wire up feedback tool to this experience
+                    from agents.feedback_tools import set_last_experience_id
+                    set_last_experience_id(record.id)
                 except Exception:
                     pass  # Never let logging break the main flow
 
@@ -616,51 +653,72 @@ class Agent(AgentMessagesMixin):
                 ))
 
             # EATP: Log the approved dry-run execution as an experience
-            try:
-                tool_executions = []
-                # Collect actual results from the ToolMessages appended during execution
-                tool_results_map = {}
-                for msg in messages:
-                    if hasattr(msg, 'tool_call_id') and hasattr(msg, 'name'):
-                        is_error = msg.content.startswith("Error") if msg.content else False
-                        tool_results_map[msg.tool_call_id] = {
-                            "result": msg.content[:200] if msg.content else "",
-                            "success": not is_error,
-                            "error": msg.content if is_error else None,
-                        }
-                for tool_call in dry_run_plan:
-                    actual = tool_results_map.get(tool_call["id"], {})
-                    tool_executions.append({
-                        "name": tool_call["name"],
-                        "args": tool_call.get("arguments", {}),
-                        "result": actual.get("result", ""),
-                        "success": actual.get("success", True),
-                        "error": actual.get("error"),
-                    })
-                # Extract original user message from history
-                user_msg = ""
-                for msg in reversed(history):
-                    if msg.get("role") == "user":
-                        user_msg = msg.get("content", "")
-                        break
-                if user_msg:
-                    task_category = self.experience_logger.infer_category(
-                        [t["name"] for t in dry_run_plan]
-                    )
-                    record = self.experience_logger.build_record(
-                        task_description=user_msg,
-                        task_category=task_category,
-                        task_complexity="heavy",
-                        plan_summary="",
-                        tools_planned=[t["name"] for t in dry_run_plan],
-                        tool_executions=tool_executions,
-                        user_corrections=[],
-                        approval_actions=[{"tool_name": t["name"], "action": "approved"} for t in dry_run_plan],
-                        outcome="success",
-                    )
-                    self.experience_store.add(record)
-            except Exception:
-                pass  # Never let logging break the main flow
+            if self.experience_store:
+                try:
+                    tool_executions = []
+                    # Collect actual results from the ToolMessages appended during execution
+                    tool_results_map = {}
+                    for msg in messages:
+                        if hasattr(msg, 'tool_call_id') and hasattr(msg, 'name'):
+                            content = msg.content if msg.content else ""
+                            is_error = (
+                                content.startswith("Error") or
+                                content.startswith("Exception") or
+                                "Traceback" in content or
+                                content.startswith("FileNotFoundError") or
+                                content.startswith("Permission denied") or
+                                content.startswith("Failed to")
+                            )
+                            tool_results_map[msg.tool_call_id] = {
+                                "result": content[:200],
+                                "success": not is_error,
+                                "error": content if is_error else None,
+                            }
+                    for tool_call in dry_run_plan:
+                        actual = tool_results_map.get(tool_call["id"], {})
+                        tool_executions.append({
+                            "name": tool_call["name"],
+                            "args": tool_call.get("arguments", {}),
+                            "result": actual.get("result", ""),
+                            "success": actual.get("success", True),
+                            "error": actual.get("error"),
+                        })
+                    # Derive outcome from actual tool results
+                    all_success = all(t.get("success", True) for t in tool_executions)
+                    any_success = any(t.get("success", True) for t in tool_executions)
+                    if all_success:
+                        outcome = "success"
+                    elif any_success:
+                        outcome = "partial"
+                    else:
+                        outcome = "failure"
+                    # Extract original user message from history
+                    user_msg = ""
+                    for msg in reversed(history):
+                        if msg.get("role") == "user":
+                            user_msg = msg.get("content", "")
+                            break
+                    if user_msg:
+                        task_category = self.experience_logger.infer_category(
+                            [t["name"] for t in dry_run_plan]
+                        )
+                        record = self.experience_logger.build_record(
+                            task_description=user_msg,
+                            task_category=task_category,
+                            task_complexity="heavy",
+                            plan_summary="",
+                            tools_planned=[t["name"] for t in dry_run_plan],
+                            tool_executions=tool_executions,
+                            user_corrections=list(self._session_corrections),
+                            approval_actions=[{"tool_name": t["name"], "action": "approved"} for t in dry_run_plan],
+                            outcome=outcome,
+                        )
+                        self.experience_store.add(record)
+                        # Wire up feedback tool to this experience
+                        from agents.feedback_tools import set_last_experience_id
+                        set_last_experience_id(record.id)
+                except Exception:
+                    pass  # Never let logging break the main flow
 
             # Run the graph for follow-up in per-tool mode
             # Use task_class="heavy" to skip re-classification (dry-run execution is inherently heavy)

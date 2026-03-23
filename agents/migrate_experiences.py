@@ -36,9 +36,9 @@ def migrate(new_model: str = None, persist_dir: str = None):
 
     for record in needs_migration:
         record.embedding_model = target_model
-        # Delete old record and re-add (re-embeds with new model)
+        # Delete old record and re-add with dedup bypassed (re-embeds with new model)
         store._collection.delete(ids=[record.id])
-        store.add(record)
+        store.add(record, skip_dedup=True)
         print(f"  Migrated: {record.id[:8]}... ({record.task_description[:50]})")
 
     print(f"Migration complete. {len(needs_migration)} records re-embedded.")
