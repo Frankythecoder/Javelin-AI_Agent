@@ -109,3 +109,40 @@ class TestEATPIntegration:
 
         system_msg = captured_messages[0].content
         assert "Lessons from Past Experience" not in system_msg
+
+
+class TestExperienceLogging:
+    def test_successful_execution_logs_experience(self):
+        """After a successful chat_once, an experience should be logged."""
+        from agents.core import Agent
+        from openai import OpenAI
+        client = MagicMock(spec=OpenAI)
+        client.api_key = "test-key"
+        agent = Agent(client, "gpt-4.1", lambda: ("", False), [])
+
+        # Mock experience store
+        agent.experience_store.retrieve = MagicMock(return_value=[])
+        agent.experience_store.format_for_prompt = MagicMock(return_value="")
+        agent.experience_store.add = MagicMock()
+
+        # Mock graph to return success
+        def mock_invoke(state, config=None):
+            return {
+                "messages": state["messages"],
+                "status": "success",
+                "response": "Done!",
+                "response_history": [],
+                "execution_path": ["__start__", "classify_task", "call_model", "format_output"],
+                "dry_run_plan": [],
+                "pending_tools": [],
+                "task_class": "heavy",
+            }
+        agent._graph.invoke = mock_invoke
+
+        agent.chat_once(conversation_history=[], message="List files in current directory")
+
+        # Experience should have been logged
+        assert agent.experience_store.add.called
+        logged_record = agent.experience_store.add.call_args[0][0]
+        assert logged_record.task_description == "List files in current directory"
+        assert logged_record.outcome == "success"

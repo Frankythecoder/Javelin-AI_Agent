@@ -11,6 +11,7 @@ from agents.control import AgentControlState, ToolDefinition, ApprovalAwareTool,
 from agents.helpers import is_prompt_injection
 from agents.agent_messages import AgentMessagesMixin
 from agents.experience_store import ExperienceStore
+from agents.experience_logger import ExperienceLogger
 
 
 def main():
@@ -159,6 +160,7 @@ class Agent(AgentMessagesMixin):
 
         # EATP: Experience store and logger
         self.experience_store = ExperienceStore()
+        self.experience_logger = ExperienceLogger()
 
         # System instruction for agentic behavior
         self.system_instruction = """
@@ -525,6 +527,40 @@ class Agent(AgentMessagesMixin):
             }
 
             result = self._graph.invoke(initial_state, {"recursion_limit": 25})
+
+            # EATP: Log this execution as an experience (only on actual execution, not dry_run)
+            if message and result.get("status") == "success":
+                try:
+                    # Extract tool executions from response history
+                    history = result.get("response_history", [])
+                    tool_executions = []
+                    for msg in history:
+                        if msg.get("role") == "tool":
+                            is_error = msg.get("content", "").startswith("Error")
+                            tool_executions.append({
+                                "name": msg.get("name", ""),
+                                "args": {},
+                                "result": msg.get("content", "")[:200],
+                                "success": not is_error,
+                                "error": msg.get("content", "") if is_error else None,
+                            })
+                    # Infer task category from tools used
+                    used_tools = [msg.get("name", "") for msg in history if msg.get("role") == "tool"]
+                    task_category = self.experience_logger.infer_category(used_tools)
+                    record = self.experience_logger.build_record(
+                        task_description=message,
+                        task_category=task_category,
+                        task_complexity=result.get("task_class", "heavy"),
+                        plan_summary=result.get("response", "")[:200],
+                        tools_planned=[t["name"] for t in result.get("dry_run_plan", [])],
+                        tool_executions=tool_executions,
+                        user_corrections=[],
+                        approval_actions=[],
+                        outcome=result.get("status", "success"),
+                    )
+                    self.experience_store.add(record)
+                except Exception:
+                    pass  # Never let logging break the main flow
 
             # Build execution path string
             path = result.get("execution_path", []) + ["__end__"]
