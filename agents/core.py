@@ -10,6 +10,7 @@ from langgraph.graph import StateGraph, END
 from agents.control import AgentControlState, ToolDefinition, ApprovalAwareTool, tool_definition_to_langchain
 from agents.helpers import is_prompt_injection
 from agents.agent_messages import AgentMessagesMixin
+from agents.experience_store import ExperienceStore
 
 
 def main():
@@ -155,6 +156,9 @@ class Agent(AgentMessagesMixin):
 
         # Conversation summary for memory across trimmed messages
         self._conversation_summary = None
+
+        # EATP: Experience store and logger
+        self.experience_store = ExperienceStore()
 
         # System instruction for agentic behavior
         self.system_instruction = """
@@ -477,8 +481,14 @@ class Agent(AgentMessagesMixin):
                     "response": "\u26d4 Agent execution was stopped."
                 }
 
-            # Build LangChain message list
-            messages = [SystemMessage(content=self.system_instruction)]
+            # Build LangChain message list with EATP augmentation
+            system_prompt = self.system_instruction
+            if message:
+                experiences = self.experience_store.retrieve(message)
+                experience_section = self.experience_store.format_for_prompt(experiences)
+                if experience_section:
+                    system_prompt = system_prompt + "\n\n" + experience_section
+            messages = [SystemMessage(content=system_prompt)]
             if conversation_history:
                 for lc_msg in self._dicts_to_messages(conversation_history):
                     if isinstance(lc_msg, SystemMessage):
