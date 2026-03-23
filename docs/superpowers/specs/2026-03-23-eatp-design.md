@@ -82,6 +82,10 @@ ExperienceRecord:
     # For retrieval
     embedding: list[float]         # Vector embedding of task_description
 
+    # Learning metadata
+    last_validated: datetime       # Updated when the same lesson is confirmed again
+    confirmation_count: int        # How many times this lesson has been re-confirmed (resists decay)
+
     # Versioning
     schema_version: int            # Current version: 1. Increment on breaking changes.
     embedding_model: str           # e.g., "text-embedding-3-small". Used to detect incompatible embeddings.
@@ -183,13 +187,13 @@ rate_experience:
 
 The agent asks for this at the end of complex tasks but does not nag. When provided, it gets attached to the experience record and heavily weighted during retrieval (an experience rated 1/5 with feedback is the most valuable lesson in the store).
 
-### 5.5 Confidence Decay
+### 5.4 Confidence Decay
 Experiences from early sessions may reflect inconsistent user behavior or evolving preferences. To address this:
 - Each experience has a `last_validated` timestamp, updated when the same lesson is confirmed again (i.e., a similar correction is made)
 - During retrieval, results are weighted by recency: `weight = relevance_score * recency_factor`, where `recency_factor = 1.0` for experiences < 30 days old, decaying linearly to `0.5` for experiences > 180 days old
 - Experiences that are repeatedly validated (high confirmation count) resist decay
 
-### 5.4 Deduplication
+### 5.5 Deduplication
 If the agent encounters the same correction multiple times, it consolidates rather than storing duplicates. A similarity check: if a new experience is >0.95 cosine similarity to an existing one with the same lesson, update the existing record's confidence score instead of creating a new one.
 
 ---
