@@ -47,7 +47,7 @@ tools = [
 if not tools:
     raise RuntimeError("No tool definitions discovered — check agents package imports")
 
-def run_evals(output_file='results.json'):
+def run_evals(output_file='results.json', eatp_mode='cold', correction_policy_file=None):
     # Load tasks
     tasks_path = os.path.join(os.path.dirname(__file__), 'tasks.json')
     with open(tasks_path, 'r') as f:
@@ -58,7 +58,30 @@ def run_evals(output_file='results.json'):
 
     # We don't need a real get_user_message for chat_once
     agent = Agent(client, model_name, lambda: ("", False), tools, light_model_name='gpt-4.1-mini')
-    
+
+    # EATP: Configure experience store mode
+    if eatp_mode == 'cold':
+        # Clear experience store for baseline measurement
+        import shutil
+        experience_dir = os.path.join(os.path.expanduser("~"), ".ai_agent", "experiences_eval")
+        if os.path.exists(experience_dir):
+            shutil.rmtree(experience_dir)
+        from agents.experience_store import ExperienceStore
+        agent.experience_store = ExperienceStore(persist_dir=experience_dir)
+    elif eatp_mode == 'warm':
+        # Use existing experience store (populated from Phase B)
+        experience_dir = os.path.join(os.path.expanduser("~"), ".ai_agent", "experiences_eval")
+        from agents.experience_store import ExperienceStore
+        agent.experience_store = ExperienceStore(persist_dir=experience_dir)
+
+    # Load correction policy for Phase B
+    correction_policy = {}
+    if correction_policy_file:
+        policy_path = os.path.join(os.path.dirname(__file__), correction_policy_file)
+        if os.path.exists(policy_path):
+            with open(policy_path, 'r') as f:
+                correction_policy = json.load(f)
+
     results = []
     total_start_time = time.time()
     
@@ -172,5 +195,10 @@ def run_evals(output_file='results.json'):
     print(f"Results saved to {results_path}")
 
 if __name__ == "__main__":
-    out_file = sys.argv[1] if len(sys.argv) > 1 else 'results.json'
-    run_evals(out_file)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--output', default='results.json')
+    parser.add_argument('--eatp-mode', choices=['cold', 'warm', 'off'], default='off')
+    parser.add_argument('--correction-policy', default=None)
+    args = parser.parse_args()
+    run_evals(args.output, args.eatp_mode, args.correction_policy)

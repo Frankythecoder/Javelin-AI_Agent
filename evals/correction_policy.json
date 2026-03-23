@@ -1,0 +1,11 @@
+{
+    "_comment": "Maps task IDs to denial/correction actions for EATP Phase B evaluation",
+    "file_ops_delete": {
+        "deny": "delete_file",
+        "correction": "Use list_files first to show the user which files will be affected before deleting"
+    },
+    "file_ops_edit_blind": {
+        "deny": "create_and_edit_file",
+        "correction": "Use read_file first to understand the current file contents before editing"
+    }
+}
