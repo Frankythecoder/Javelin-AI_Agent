@@ -97,41 +97,82 @@ def run_evals(output_file='results.json', eatp_mode='cold', correction_policy_fi
         agent.clear_session_feedback()
         
         response_data = agent.chat_once(conversation_history=[], message=task['prompt'])
-        
-        # Handle auto-approval for eval runner, with correction policy for Phase B
+
+        # Handle dry_run and pending statuses — keep looping until we get a terminal status
         task_policy = correction_policy.get(task['id']) or correction_policy.get(task.get('category'))
-        while isinstance(response_data, dict) and response_data.get('status') == 'pending':
-            history = response_data.get('history', [])
-            pending_tools = response_data.get('pending_tools', [])
+        max_turns = 15  # Safety limit to prevent infinite loops
+        turn = 0
+        while isinstance(response_data, dict) and turn < max_turns:
+            status = response_data.get('status')
+            turn += 1
 
-            denied_any = False
-            for tool_call in pending_tools:
-                tool_name = tool_call.get('name')
-                # Apply correction policy: deny specified tools and inject correction
-                if task_policy and tool_name == task_policy.get('deny'):
-                    denied_any = True
-                    correction_text = task_policy.get('correction', f'User denied {tool_name}.')
-                    agent.record_denial(tool_name, "denied")
-                    agent.record_correction(f"User denied {tool_name}. {correction_text}")
-                    # Append denial as a user message so the agent can recover
-                    history.append({
-                        "role": "user",
-                        "content": f"I denied the use of {tool_name}. {correction_text}"
-                    })
-                    # Only apply the policy once per task
-                    task_policy = None
+            if status == 'dry_run':
+                # chat_once defaults to dry-run mode — agent proposed a plan, we need to execute it
+                plan = response_data.get('dry_run_plan', [])
+                history = response_data.get('history', [])
+
+                # Check correction policy: deny a tool from the plan if policy says so
+                if task_policy:
+                    denied_tool = task_policy.get('deny')
+                    if any(t['name'] == denied_tool for t in plan):
+                        correction_text = task_policy.get('correction', f'User denied {denied_tool}.')
+                        agent.record_denial(denied_tool, "denied")
+                        agent.record_correction(f"User denied {denied_tool}. {correction_text}")
+                        # Remove denied tool from plan
+                        plan = [t for t in plan if t['name'] != denied_tool]
+                        # Inject correction as user message so agent learns the right approach
+                        history.append({
+                            "role": "user",
+                            "content": f"I denied the use of {denied_tool}. {correction_text}"
+                        })
+                        task_policy = None  # Only apply once per task
+
+                        if plan:
+                            # Execute remaining tools, then agent continues with correction context
+                            response_data = agent.execute_dry_run(plan, history)
+                        else:
+                            # All tools denied — let agent re-plan with correction
+                            response_data = agent.chat_once(conversation_history=history)
+                        continue
+
+                # No correction needed — auto-approve entire plan
+                if plan:
+                    response_data = agent.execute_dry_run(plan, history)
                 else:
-                    # Auto-approve: execute tool and get result
-                    result = agent._execute_tool_by_name(tool_name, tool_call.get('arguments'))
-                    history.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.get('id'),
-                        "name": tool_name,
-                        "content": result
-                    })
+                    break  # Empty plan, nothing to do
 
-            # Continue chat with the updated history
-            response_data = agent.chat_once(conversation_history=history)
+            elif status == 'pending':
+                # Per-tool approval mode (used after execute_dry_run for follow-up calls)
+                history = response_data.get('history', [])
+                pending_tools = response_data.get('pending_tools', [])
+
+                for tool_call in pending_tools:
+                    tool_name = tool_call.get('name')
+                    # Check correction policy for pending tools too
+                    if task_policy and tool_name == task_policy.get('deny'):
+                        correction_text = task_policy.get('correction', f'User denied {tool_name}.')
+                        agent.record_denial(tool_name, "denied")
+                        agent.record_correction(f"User denied {tool_name}. {correction_text}")
+                        history.append({
+                            "role": "user",
+                            "content": f"I denied the use of {tool_name}. {correction_text}"
+                        })
+                        task_policy = None
+                    else:
+                        # Auto-approve
+                        result = agent._execute_tool_by_name(tool_name, tool_call.get('arguments'))
+                        history.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.get('id'),
+                            "name": tool_name,
+                            "content": result
+                        })
+
+                response_data = agent.chat_once(conversation_history=history)
+
+            else:
+                # Terminal status: success, error, stopped
+                break
 
         duration = time.time() - task_start_time
         
