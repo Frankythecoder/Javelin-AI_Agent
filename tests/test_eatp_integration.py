@@ -146,3 +146,53 @@ class TestExperienceLogging:
         logged_record = agent.experience_store.add.call_args[0][0]
         assert logged_record.task_description == "List files in current directory"
         assert logged_record.outcome == "success"
+
+
+class TestExecuteDryRunLogging:
+    def test_approved_dry_run_logs_experience_with_actual_results(self):
+        """execute_dry_run should log an experience with actual tool results."""
+        from agents.core import Agent
+        from openai import OpenAI
+        client = MagicMock(spec=OpenAI)
+        client.api_key = "test-key"
+        agent = Agent(client, "gpt-4.1", lambda: ("", False), [])
+
+        # Mock experience store
+        agent.experience_store.retrieve = MagicMock(return_value=[])
+        agent.experience_store.format_for_prompt = MagicMock(return_value="")
+        agent.experience_store.add = MagicMock()
+
+        # Mock graph for the follow-up invocation
+        def mock_invoke(state, config=None):
+            return {
+                "messages": state["messages"],
+                "status": "success",
+                "response": "Done!",
+                "response_history": [],
+                "execution_path": ["test"],
+                "dry_run_plan": [],
+                "pending_tools": [],
+                "task_class": "heavy",
+            }
+        agent._graph.invoke = mock_invoke
+
+        # Mock tool execution
+        agent._execute_tool_by_name = MagicMock(return_value="File listed: foo.txt, bar.txt")
+
+        dry_run_plan = [
+            {"id": "tc_1", "name": "list_files", "arguments": {"path": "."}},
+        ]
+        history = [
+            {"role": "user", "content": "List files in current directory"},
+            {"role": "assistant", "content": "", "tool_calls": [
+                {"id": "tc_1", "function": {"name": "list_files", "arguments": "{\"path\": \".\"}"}}
+            ]},
+        ]
+
+        agent.execute_dry_run(dry_run_plan, history)
+
+        # Should have logged an experience
+        assert agent.experience_store.add.called
+        logged = agent.experience_store.add.call_args[0][0]
+        assert logged.task_description == "List files in current directory"
+        assert "list_files" in logged.tools_executed

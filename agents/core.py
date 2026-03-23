@@ -615,6 +615,53 @@ class Agent(AgentMessagesMixin):
                     name=tool_call['name'],
                 ))
 
+            # EATP: Log the approved dry-run execution as an experience
+            try:
+                tool_executions = []
+                # Collect actual results from the ToolMessages appended during execution
+                tool_results_map = {}
+                for msg in messages:
+                    if hasattr(msg, 'tool_call_id') and hasattr(msg, 'name'):
+                        is_error = msg.content.startswith("Error") if msg.content else False
+                        tool_results_map[msg.tool_call_id] = {
+                            "result": msg.content[:200] if msg.content else "",
+                            "success": not is_error,
+                            "error": msg.content if is_error else None,
+                        }
+                for tool_call in dry_run_plan:
+                    actual = tool_results_map.get(tool_call["id"], {})
+                    tool_executions.append({
+                        "name": tool_call["name"],
+                        "args": tool_call.get("arguments", {}),
+                        "result": actual.get("result", ""),
+                        "success": actual.get("success", True),
+                        "error": actual.get("error"),
+                    })
+                # Extract original user message from history
+                user_msg = ""
+                for msg in reversed(history):
+                    if msg.get("role") == "user":
+                        user_msg = msg.get("content", "")
+                        break
+                if user_msg:
+                    task_category = self.experience_logger.infer_category(
+                        [t["name"] for t in dry_run_plan]
+                    )
+                    record = self.experience_logger.build_record(
+                        task_description=user_msg,
+                        task_category=task_category,
+                        task_complexity="heavy",
+                        plan_summary="",
+                        tools_planned=[t["name"] for t in dry_run_plan],
+                        tool_executions=tool_executions,
+                        user_corrections=[],
+                        approval_actions=[{"tool_name": t["name"], "action": "approved"} for t in dry_run_plan],
+                        outcome="success",
+                    )
+                    self.experience_store.add(record)
+            except Exception:
+                pass  # Never let logging break the main flow
+
             # Run the graph for follow-up in per-tool mode
             # Use task_class="heavy" to skip re-classification (dry-run execution is inherently heavy)
             initial_state: AgentState = {
