@@ -123,4 +123,9 @@ from agents.document_rw_tools import (
     EDIT_PPTX_DEFINITION,
 )
 
+from agents.feedback_tools import (
+    rate_experience_tool,
+    RATE_EXPERIENCE_DEFINITION,
+)
+
 from agents.core import Agent, AgentState, main
