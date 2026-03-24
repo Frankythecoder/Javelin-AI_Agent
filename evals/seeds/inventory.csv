@@ -1,0 +1,6 @@
+item_id,name,stock,reorder_level
+1001,Laptop,45,20
+1002,Mouse,120,50
+1003,Keyboard,89,30
+1004,Monitor,12,15
+1005,USB Cable,250,100

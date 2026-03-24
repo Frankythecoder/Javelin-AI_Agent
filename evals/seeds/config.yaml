@@ -1,0 +1,11 @@
+app:
+  name: MyApp
+  version: 1.0
+databases:
+  primary:
+    host: localhost
+    port: 5432
+    name: myapp_db
+logging:
+  level: INFO
+  file: app.log
