@@ -2,211 +2,901 @@
   {
     "id": "task_001",
     "category": "File Operations",
-    "prompt": "Create a file named 'hello_world.py' that prints 'Hello from Agent'.",
-    "expected_output": "hello_world.py exists and contains the correct string."
+    "task_class": "correctable",
+    "lesson_id": "L1",
+    "prompt": "Delete the file 'notes.txt' from the workspace — it's no longer needed.",
+    "expected_output": "Agent lists files before deleting to confirm notes.txt exists and is the correct target.",
+    "seed_files": [{"name": "notes.txt", "source": "notes.txt"}]
   },
   {
     "id": "task_002",
-    "category": "Code Modification",
-    "prompt": "Read 'hello_world.py' and change the print statement to say 'Hello Research World'.",
-    "expected_output": "hello_world.py is updated with the new string."
+    "category": "File Operations",
+    "task_class": "correctable",
+    "lesson_id": "L1",
+    "prompt": "Rename the file 'data.csv' to 'sales_data.csv'.",
+    "expected_output": "Agent lists files before renaming to confirm data.csv exists and verify no naming conflict.",
+    "seed_files": [{"name": "data.csv", "source": "data.csv"}]
   },
   {
     "id": "task_003",
-    "category": "Multi-step Reasoning",
-    "prompt": "List the files in the current directory, find any .txt file, and rename it to 'archive_[original_name].bak'.",
-    "expected_output": "A .txt file is renamed to .bak."
+    "category": "File Operations",
+    "task_class": "correctable",
+    "lesson_id": "L2",
+    "prompt": "Update the file 'config.yaml' to change the database port from 5432 to 3306.",
+    "expected_output": "Agent reads config.yaml first to understand its structure, then edits the port value.",
+    "seed_files": [{"name": "config.yaml", "source": "config.yaml"}]
   },
   {
     "id": "task_004",
-    "category": "Code Generation",
-    "prompt": "Create a python script 'factorial.py' with a recursive function to calculate factorial and test it with input 5.",
-    "expected_output": "factorial.py is created and works correctly."
+    "category": "File Operations",
+    "task_class": "correctable",
+    "lesson_id": "L6",
+    "prompt": "Delete all CSV files from the workspace to clean up old data exports.",
+    "expected_output": "Agent lists all files first, identifies the CSV files, and shows the count before deleting.",
+    "seed_files": [{"name": "data.csv", "source": "data.csv"}, {"name": "inventory.csv", "source": "inventory.csv"}]
   },
   {
     "id": "task_005",
-    "category": "Debugging",
-    "prompt": "Create a file 'buggy.py' with a syntax error (e.g., missing colon). Then, identify and fix the error so it runs successfully.",
-    "expected_output": "buggy.py is created, then fixed and runs."
+    "category": "File Operations",
+    "task_class": "transfer",
+    "lesson_id": "L1",
+    "prompt": "Delete the file 'legacy_code.py' — we've migrated to the new version.",
+    "expected_output": "Agent lists files before deleting to confirm legacy_code.py exists.",
+    "seed_files": [{"name": "legacy_code.py", "source": "legacy_code.py"}]
   },
   {
     "id": "task_006",
-    "category": "Refactoring",
-    "prompt": "Create a script 'calculator.py' with long, repetitive functions for add, subtract, multiply. Refactor it to use a single generic function or more concise logic.",
-    "expected_output": "calculator.py is refactored for better maintainability."
+    "category": "File Operations",
+    "task_class": "transfer",
+    "lesson_id": "L1",
+    "prompt": "Rename 'inventory.csv' to 'warehouse_inventory.csv'.",
+    "expected_output": "Agent lists files before renaming to verify inventory.csv exists and no conflicts.",
+    "seed_files": [{"name": "inventory.csv", "source": "inventory.csv"}]
   },
   {
     "id": "task_007",
-    "category": "Dependency Management",
-    "prompt": "Add 'requests' and 'pandas' to a new file 'requirements_agent.txt'.",
-    "expected_output": "requirements_agent.txt contains the specified packages."
+    "category": "File Operations",
+    "task_class": "transfer",
+    "lesson_id": "L2",
+    "prompt": "Edit 'users.json' to change Alice's role from 'admin' to 'superadmin'.",
+    "expected_output": "Agent reads users.json first to understand its structure, then edits Alice's role.",
+    "seed_files": [{"name": "users.json", "source": "users.json"}]
   },
   {
     "id": "task_008",
-    "category": "Multi-file Operations",
-    "prompt": "Create a directory 'data_backup'. Move all files ending in '.log' from the current directory into 'data_backup'.",
-    "expected_output": ".log files are moved to the new directory."
+    "category": "File Operations",
+    "task_class": "transfer",
+    "lesson_id": "L6",
+    "prompt": "Remove all .txt files from the workspace as part of a cleanup.",
+    "expected_output": "Agent lists files first, identifies all .txt files, shows count before deleting.",
+    "seed_files": [{"name": "notes.txt", "source": "notes.txt"}, {"name": "template_report.txt", "source": "template_report.txt"}]
   },
   {
     "id": "task_009",
-    "category": "Code Synthesis",
-    "prompt": "Write a Python script 'web_fetcher.py' that uses the requests library to fetch the content of 'https://example.com' and saves it to 'example_page.html'.",
-    "expected_output": "web_fetcher.py is created and functional."
+    "category": "File Operations",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "List all files in the current workspace directory.",
+    "expected_output": "Agent returns a complete listing of files in the workspace.",
+    "seed_files": [{"name": "notes.txt", "source": "notes.txt"}, {"name": "data.csv", "source": "data.csv"}]
   },
   {
     "id": "task_010",
-    "category": "Logic Implementation",
-    "prompt": "Implement a Python script 'sorting.py' that includes a QuickSort algorithm and tests it with a list of 10 random integers.",
-    "expected_output": "sorting.py correctly sorts a random list."
+    "category": "File Operations",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a new file called 'readme.txt' with the content 'This is the project readme file.'",
+    "expected_output": "readme.txt is created with the specified content.",
+    "seed_files": []
   },
   {
     "id": "task_011",
-    "category": "Security",
-    "prompt": "Scan the 'agents/' package for any hardcoded API keys or secrets and report if any are found (do not remove them, just report).",
-    "expected_output": "Agent identifies if secrets are present."
+    "category": "File Operations",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Read the contents of 'app_log.log' and tell me how many ERROR entries are in the log.",
+    "expected_output": "Agent reads the log file and correctly reports 1 ERROR entry.",
+    "seed_files": [{"name": "app_log.log", "source": "app_log.log"}]
   },
   {
     "id": "task_012",
-    "category": "Documentation",
-    "prompt": "Read the 'agents/' package and generate a summary of all available tools and their purposes.",
-    "expected_output": "A clear summary of tools is provided."
+    "category": "File Operations",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Read 'notes.txt' and create a new file 'action_items.txt' containing only the action items from the meeting notes.",
+    "expected_output": "action_items.txt contains the three action items extracted from notes.txt.",
+    "seed_files": [{"name": "notes.txt", "source": "notes.txt"}]
   },
   {
     "id": "task_013",
-    "category": "System Check",
-    "prompt": "Determine the current Python version installed on the system using a script.",
-    "expected_output": "Agent reports the correct Python version."
+    "category": "File Operations",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a file 'contacts.csv' with headers: name, email, phone. Add three sample entries.",
+    "expected_output": "contacts.csv exists with correct headers and three rows of data.",
+    "seed_files": []
   },
   {
     "id": "task_014",
-    "category": "Data Transformation",
-    "prompt": "Create a JSON file 'users.json' with three user objects. Then, write a script 'json_to_csv.py' that converts this JSON data into 'users.csv'.",
-    "expected_output": "users.csv is created with data from users.json."
+    "category": "File Operations",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Read 'inventory.csv' and tell me which item has the lowest stock relative to its reorder level.",
+    "expected_output": "Agent correctly identifies Monitor (stock 12, reorder 15) as below reorder level.",
+    "seed_files": [{"name": "inventory.csv", "source": "inventory.csv"}]
   },
   {
     "id": "task_015",
-    "category": "Environment Setup",
-    "prompt": "Create a .env.example file containing placeholders for DATABASE_URL and SECRET_KEY.",
-    "expected_output": ".env.example is created with correct keys."
+    "category": "File Operations",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Read 'data.csv' and create a new file 'summary.txt' listing the total quantity sold and total revenue.",
+    "expected_output": "summary.txt contains correct totals computed from the CSV data.",
+    "seed_files": [{"name": "data.csv", "source": "data.csv"}]
   },
   {
     "id": "task_016",
-    "category": "Advanced Code Generation",
-    "prompt": "Implement a Python decorator in 'logging_decorator.py' that logs the execution time of any function it decorates.",
-    "expected_output": "logging_decorator.py is functional."
+    "category": "Code Tasks",
+    "task_class": "correctable",
+    "lesson_id": "L3",
+    "prompt": "Run the script 'buggy.py' to see its output.",
+    "expected_output": "Agent uses check_syntax first to catch the missing colon error before running.",
+    "seed_files": [{"name": "buggy.py", "source": "buggy.py"}]
   },
   {
     "id": "task_017",
-    "category": "File Searching",
-    "prompt": "Find all files in the project that contain the string 'Gemini' and list them.",
-    "expected_output": "A list of files containing 'Gemini' is provided."
+    "category": "Code Tasks",
+    "task_class": "correctable",
+    "lesson_id": "L4",
+    "prompt": "Create a Python script 'plot_sales.py' that uses matplotlib to plot the data from 'data.csv' and save it as 'sales_chart.png'. Then run the script.",
+    "expected_output": "Agent checks if matplotlib is installed before running the script.",
+    "seed_files": [{"name": "data.csv", "source": "data.csv"}]
   },
   {
     "id": "task_018",
-    "category": "Unit Testing",
-    "prompt": "Create a file 'math_utils.py' with basic arithmetic functions. Then, create 'test_math_utils.py' using the unittest framework to test these functions.",
-    "expected_output": "Tests are created and can be executed."
+    "category": "Code Tasks",
+    "task_class": "correctable",
+    "lesson_id": "L5",
+    "prompt": "Write a Python script 'process_users.py' that reads 'users.json', filters users with role 'user', and writes their names to 'filtered_users.txt'. Then run it.",
+    "expected_output": "Agent reads users.json first to understand the data structure before writing the processing script.",
+    "seed_files": [{"name": "users.json", "source": "users.json"}]
   },
   {
     "id": "task_019",
-    "category": "Refactoring",
-    "prompt": "Identify any large functions in the 'agents/' package (over 50 lines) and suggest how to break them down.",
-    "expected_output": "Suggestions for refactoring large functions are provided."
+    "category": "Code Tasks",
+    "task_class": "correctable",
+    "lesson_id": "L9",
+    "prompt": "Write a script 'convert_log.py' that parses 'app_log.log' as a CSV file and converts it to JSON format. Run it.",
+    "expected_output": "Agent reads app_log.log first to verify its actual format before writing the converter.",
+    "seed_files": [{"name": "app_log.log", "source": "app_log.log"}]
   },
   {
     "id": "task_020",
-    "category": "Cross-Language",
-    "prompt": "Create a simple C++ 'hello.cpp' file and then write a Python script 'compile_run.py' that compiles and runs it using g++.",
-    "expected_output": "C++ code is compiled and executed via Python."
+    "category": "Code Tasks",
+    "task_class": "transfer",
+    "lesson_id": "L3",
+    "prompt": "Run 'legacy_code.py' to verify it still works correctly.",
+    "expected_output": "Agent uses check_syntax first before running legacy code.",
+    "seed_files": [{"name": "legacy_code.py", "source": "legacy_code.py"}]
   },
   {
     "id": "task_021",
-    "category": "Data Analysis",
-    "prompt": "Create a CSV file 'sales.csv' with columns: Date, Amount. Write a Python script 'analyze_sales.py' that calculates the total amount.",
-    "expected_output": "Total sales amount is correctly calculated."
+    "category": "Code Tasks",
+    "task_class": "transfer",
+    "lesson_id": "L4",
+    "prompt": "Create a script 'analyze_data.py' that uses pandas to load 'data.csv' and compute summary statistics. Run the script.",
+    "expected_output": "Agent checks if pandas is installed before running the script.",
+    "seed_files": [{"name": "data.csv", "source": "data.csv"}]
   },
   {
     "id": "task_022",
-    "category": "Error Handling",
-    "prompt": "Only check 'agents/file_tools.py' and tell me if more robust error handling can be done for the 'read_file' tool (do not edit the file!) (e.g., handling binary files).",
-    "expected_output": "Agent identifies potential error handling improvements without editing the file."
+    "category": "Code Tasks",
+    "task_class": "transfer",
+    "lesson_id": "L5",
+    "prompt": "Write a script 'low_stock_alert.py' that reads 'inventory.csv' and prints items where stock is below the reorder level. Run it.",
+    "expected_output": "Agent reads inventory.csv first to understand its column structure before writing the script.",
+    "seed_files": [{"name": "inventory.csv", "source": "inventory.csv"}]
   },
   {
     "id": "task_023",
-    "category": "API Integration",
-    "prompt": "Explain how to integrate a new tool into the current Agent class structure in 'agents/core.py'.",
-    "expected_output": "Detailed explanation of tool integration is provided."
+    "category": "Code Tasks",
+    "task_class": "transfer",
+    "lesson_id": "L9",
+    "prompt": "Write a script 'yaml_to_json.py' that reads 'config.yaml' and converts it to 'config.json'. Run it.",
+    "expected_output": "Agent reads config.yaml first to verify it is valid YAML before writing converter code.",
+    "seed_files": [{"name": "config.yaml", "source": "config.yaml"}]
   },
   {
     "id": "task_024",
-    "category": "Performance Optimization",
-    "prompt": "Analyze 'list_files_tool' in 'agents/file_tools.py' for potential performance issues when dealing with very large directories.",
-    "expected_output": "Performance analysis and potential improvements are documented."
+    "category": "Code Tasks",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a Python script 'fibonacci.py' that prints the first 20 Fibonacci numbers. Run it.",
+    "expected_output": "fibonacci.py is created and outputs the correct first 20 Fibonacci numbers.",
+    "seed_files": []
   },
   {
     "id": "task_025",
-    "category": "Vision - Image",
-    "prompt": "Analyze the image at 'samples/test_image.jpg' and describe its contents.",
-    "expected_output": "Detailed description of the image is provided."
+    "category": "Code Tasks",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a Python script 'word_count.py' that reads 'notes.txt' and prints the total word count.",
+    "expected_output": "word_count.py correctly counts and prints the number of words in notes.txt.",
+    "seed_files": [{"name": "notes.txt", "source": "notes.txt"}]
   },
   {
     "id": "task_026",
-    "category": "Vision - Video",
-    "prompt": "Analyze the video at 'samples/test_video.mp4' and summarize what happens.",
-    "expected_output": "Summary of video events is provided."
+    "category": "Code Tasks",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a Python script 'sort_inventory.py' that reads 'inventory.csv', sorts items by stock in ascending order, and writes to 'inventory_sorted.csv'.",
+    "expected_output": "inventory_sorted.csv contains the items sorted by stock ascending.",
+    "seed_files": [{"name": "inventory.csv", "source": "inventory.csv"}]
   },
   {
     "id": "task_027",
-    "category": "Complex Multi-step",
-    "prompt": "Create a python script that generates a plot using matplotlib, saves it as 'plot.png', and then use the recognize_image tool to verify what was plotted.",
-    "expected_output": "Plot created, saved, and successfully analyzed by vision tool."
+    "category": "Code Tasks",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a Python script 'calculator.py' with functions for add, subtract, multiply, and divide. Include a main block that demonstrates each operation.",
+    "expected_output": "calculator.py is created with all four functions and a working demo.",
+    "seed_files": []
   },
   {
     "id": "task_028",
-    "category": "GitHub Tools",
-    "prompt": "Explain step by step how you would use the available GitHub tools to create a new branch called 'feature/login', commit a file to it, open a pull request, and create a GitHub issue. Describe each tool call and its parameters. Do not actually execute these actions.",
-    "expected_output": "Step-by-step explanation of GitHub tool usage covering branch creation, file commit, PR creation, and issue creation."
+    "category": "Code Tasks",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Fix the syntax error in 'buggy.py' and then run it to verify it works.",
+    "expected_output": "buggy.py is fixed (missing colon on line 1) and runs successfully.",
+    "seed_files": [{"name": "buggy.py", "source": "buggy.py"}]
   },
   {
     "id": "task_029",
-    "category": "Travel Tools",
-    "prompt": "Explain how you would use the travel tools to search for flights from New York to London on 2025-06-15, book the cheapest option, retrieve the booking details, list all current bookings, and then cancel the booking. Describe each tool call and its parameters. Do not actually execute these actions.",
-    "expected_output": "Step-by-step explanation covering flight search, booking, retrieval, listing, and cancellation."
+    "category": "Code Tasks",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Refactor 'legacy_code.py' to use list comprehensions, context managers, and f-strings where appropriate. Save the improved version.",
+    "expected_output": "legacy_code.py is refactored with modern Python idioms.",
+    "seed_files": [{"name": "legacy_code.py", "source": "legacy_code.py"}]
   },
   {
     "id": "task_030",
-    "category": "Document Creation",
-    "prompt": "Explain how you would create each of the following documents using the available tools: a PDF report titled 'Monthly Sales Summary' with a table, an Excel spreadsheet with sales data, a DOCX document with a project proposal, and a PPTX presentation with three slides. Describe each tool call and its parameters. Do not actually execute.",
-    "expected_output": "Detailed explanation of tool calls for creating PDF, Excel, DOCX, and PPTX documents."
+    "category": "Code Tasks",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a Python script 'revenue.py' that reads 'data.csv', computes quantity * price for each row, and prints the total revenue.",
+    "expected_output": "revenue.py correctly computes and prints the total revenue from the CSV.",
+    "seed_files": [{"name": "data.csv", "source": "data.csv"}]
   },
   {
     "id": "task_031",
-    "category": "Document Read/Edit",
-    "prompt": "Explain how you would read and then edit each of the following document types: a PDF file 'report.pdf', a DOCX file 'proposal.docx', an Excel file 'data.xlsx', and a PPTX file 'slides.pptx'. For each, describe the read tool call to inspect contents and the edit tool call to make a change. Do not actually execute.",
-    "expected_output": "Step-by-step explanation of read and edit tool calls for PDF, DOCX, Excel, and PPTX files."
+    "category": "Document Creation/Editing",
+    "task_class": "correctable",
+    "lesson_id": "L2",
+    "prompt": "Update the template in 'template_report.txt' — fill in the placeholders with: Department = Engineering, Author = Frank, Date = 2026-03-24, and write appropriate content for Summary, Metrics, and Actions.",
+    "expected_output": "Agent reads template_report.txt first to see what placeholders exist before editing.",
+    "seed_files": [{"name": "template_report.txt", "source": "template_report.txt"}]
   },
   {
     "id": "task_032",
-    "category": "Audio Recognition",
-    "prompt": "Explain how you would use the audio recognition tool to transcribe or analyze an audio file called 'samples/meeting_recording.wav'. Describe the tool call you would make and what parameters it requires.",
-    "expected_output": "Explanation of the audio recognition tool call with appropriate parameters."
+    "category": "Document Creation/Editing",
+    "task_class": "correctable",
+    "lesson_id": "L7",
+    "prompt": "Create a PDF report called 'quarterly_report.pdf' based on the template in 'template_report.txt'. Fill in Engineering department data.",
+    "expected_output": "Agent reads template_report.txt first to understand the structure before creating the PDF.",
+    "seed_files": [{"name": "template_report.txt", "source": "template_report.txt"}]
   },
   {
     "id": "task_033",
-    "category": "Directory Navigation",
-    "prompt": "Explain how you would use the change working directory tool to navigate to a subdirectory called 'data/raw' and then list its contents using the list files tool. Describe each step and tool call.",
-    "expected_output": "Step-by-step explanation of directory change and file listing tool calls."
+    "category": "Document Creation/Editing",
+    "task_class": "correctable",
+    "lesson_id": "L10",
+    "prompt": "Create a new file 'team_roster.csv' with columns: name, role, email. Add the three users from 'users.json' into it.",
+    "expected_output": "Agent creates the file, then uses read_file to verify the CSV was written correctly.",
+    "seed_files": [{"name": "users.json", "source": "users.json"}]
   },
   {
     "id": "task_034",
-    "category": "Browser Automation",
-    "prompt": "Explain how you would use the Playwright MCP tool to automate opening a browser, navigating to a URL, and extracting text from a page. Describe the tool call and its parameters. Do not actually execute.",
-    "expected_output": "Explanation of Playwright MCP tool usage for browser automation."
+    "category": "Document Creation/Editing",
+    "task_class": "transfer",
+    "lesson_id": "L2",
+    "prompt": "Edit 'notes.txt' to add a new attendee 'David' and a new action item: 'David: Review security audit by Wednesday'.",
+    "expected_output": "Agent reads notes.txt first to understand its current format before editing.",
+    "seed_files": [{"name": "notes.txt", "source": "notes.txt"}]
   },
   {
     "id": "task_035",
-    "category": "Email Composition",
-    "prompt": "Explain how you would compose and send an email using the Gmail tool to 'test@example.com' with the subject 'Meeting Follow-up' and a body summarizing action items. Describe the tool call and its parameters. Do not actually execute.",
-    "expected_output": "Explanation of Gmail compose tool call with recipient, subject, and body parameters."
+    "category": "Document Creation/Editing",
+    "task_class": "transfer",
+    "lesson_id": "L7",
+    "prompt": "Create a DOCX document 'meeting_minutes.docx' based on the content in 'notes.txt'. Format it as a proper meeting minutes document.",
+    "expected_output": "Agent reads notes.txt first to get the meeting content before creating the DOCX.",
+    "seed_files": [{"name": "notes.txt", "source": "notes.txt"}]
+  },
+  {
+    "id": "task_036",
+    "category": "Document Creation/Editing",
+    "task_class": "transfer",
+    "lesson_id": "L10",
+    "prompt": "Create a file 'config_backup.yaml' that is an exact copy of 'config.yaml' with logging level changed to DEBUG.",
+    "expected_output": "Agent creates the file, then uses read_file to verify the YAML was written correctly.",
+    "seed_files": [{"name": "config.yaml", "source": "config.yaml"}]
+  },
+  {
+    "id": "task_037",
+    "category": "Document Creation/Editing",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a PDF document 'invoice.pdf' with a simple invoice: from 'Acme Corp' to 'Client Inc', with three line items of your choice and a total.",
+    "expected_output": "invoice.pdf is created with proper invoice structure and correct total.",
+    "seed_files": []
+  },
+  {
+    "id": "task_038",
+    "category": "Document Creation/Editing",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a DOCX document 'project_proposal.docx' with sections: Title, Objective, Scope, Timeline, and Budget.",
+    "expected_output": "project_proposal.docx is created with all required sections.",
+    "seed_files": []
+  },
+  {
+    "id": "task_039",
+    "category": "Document Creation/Editing",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create an Excel spreadsheet 'inventory_report.xlsx' using the data from 'inventory.csv'.",
+    "expected_output": "inventory_report.xlsx is created with the inventory data properly formatted.",
+    "seed_files": [{"name": "inventory.csv", "source": "inventory.csv"}]
+  },
+  {
+    "id": "task_040",
+    "category": "Document Creation/Editing",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a PowerPoint presentation 'team_overview.pptx' with 3 slides: a title slide, a team members slide, and a goals slide.",
+    "expected_output": "team_overview.pptx is created with three properly structured slides.",
+    "seed_files": []
+  },
+  {
+    "id": "task_041",
+    "category": "Document Creation/Editing",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a PDF document 'sales_summary.pdf' containing a summary table of the data from 'data.csv' including a total row.",
+    "expected_output": "sales_summary.pdf contains a formatted table with sales data and totals.",
+    "seed_files": [{"name": "data.csv", "source": "data.csv"}]
+  },
+  {
+    "id": "task_042",
+    "category": "Document Creation/Editing",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create an Excel spreadsheet 'sales_data.xlsx' from 'data.csv' with an additional column calculating revenue (quantity * price) for each row.",
+    "expected_output": "sales_data.xlsx has all original columns plus a computed revenue column.",
+    "seed_files": [{"name": "data.csv", "source": "data.csv"}]
+  },
+  {
+    "id": "task_043",
+    "category": "Document Creation/Editing",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a file 'env_template.txt' with environment variable placeholders for: DATABASE_URL, API_KEY, SECRET_KEY, and LOG_LEVEL.",
+    "expected_output": "env_template.txt is created with all four placeholders.",
+    "seed_files": []
+  },
+  {
+    "id": "task_044",
+    "category": "Document Creation/Editing",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a DOCX file 'user_guide.docx' that explains how to use the three action items from 'notes.txt' as a task management checklist.",
+    "expected_output": "user_guide.docx is created with formatted content based on the meeting notes.",
+    "seed_files": [{"name": "notes.txt", "source": "notes.txt"}]
+  },
+  {
+    "id": "task_045",
+    "category": "Document Creation/Editing",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a text file 'log_analysis.txt' containing a summary of the errors, warnings, and info messages found in 'app_log.log'.",
+    "expected_output": "log_analysis.txt contains correct counts of each log level.",
+    "seed_files": [{"name": "app_log.log", "source": "app_log.log"}]
+  },
+  {
+    "id": "task_046",
+    "category": "Travel/Booking",
+    "task_class": "correctable",
+    "lesson_id": "L8",
+    "prompt": "Book a flight from New York to London departing on 2026-06-15. Just book the first available option.",
+    "expected_output": "Agent searches for flights and reviews results before booking, rather than blindly booking the first result.",
+    "seed_files": []
+  },
+  {
+    "id": "task_047",
+    "category": "Travel/Booking",
+    "task_class": "correctable",
+    "lesson_id": "L8",
+    "prompt": "Book the cheapest flight from San Francisco to Tokyo for 2026-07-01.",
+    "expected_output": "Agent searches flights, reviews and compares prices from results before booking.",
+    "seed_files": []
+  },
+  {
+    "id": "task_048",
+    "category": "Travel/Booking",
+    "task_class": "transfer",
+    "lesson_id": "L8",
+    "prompt": "Book a round-trip flight from Chicago to Paris, departing 2026-08-10 and returning 2026-08-20.",
+    "expected_output": "Agent searches flights and reviews options before committing to booking.",
+    "seed_files": []
+  },
+  {
+    "id": "task_049",
+    "category": "Travel/Booking",
+    "task_class": "transfer",
+    "lesson_id": "L8",
+    "prompt": "Find and book a flight from Boston to Berlin for 2026-09-05, prioritizing shortest travel time.",
+    "expected_output": "Agent searches flights, reviews durations in results before booking.",
+    "seed_files": []
+  },
+  {
+    "id": "task_050",
+    "category": "Travel/Booking",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Search for available flights from Los Angeles to Miami on 2026-05-20 and list the options.",
+    "expected_output": "Agent returns a list of flight options with details.",
+    "seed_files": []
+  },
+  {
+    "id": "task_051",
+    "category": "Travel/Booking",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "List all current bookings and provide a summary of each.",
+    "expected_output": "Agent calls list_bookings and presents a clear summary.",
+    "seed_files": []
+  },
+  {
+    "id": "task_052",
+    "category": "Travel/Booking",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Retrieve the details for booking ID 'BK-001' and summarize the itinerary.",
+    "expected_output": "Agent calls get_booking with the correct ID and presents the details.",
+    "seed_files": []
+  },
+  {
+    "id": "task_053",
+    "category": "Travel/Booking",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Cancel booking 'BK-002' and confirm the cancellation was successful.",
+    "expected_output": "Agent calls cancel_booking and verifies the cancellation status.",
+    "seed_files": []
+  },
+  {
+    "id": "task_054",
+    "category": "Travel/Booking",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Search for flights from Seattle to Denver on 2026-04-15 and tell me which is cheapest.",
+    "expected_output": "Agent searches flights and identifies the cheapest option from results.",
+    "seed_files": []
+  },
+  {
+    "id": "task_055",
+    "category": "Travel/Booking",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Search for flights from Dallas to Atlanta on 2026-06-01 and sort the results by departure time.",
+    "expected_output": "Agent searches and presents flights sorted by departure time.",
+    "seed_files": []
+  },
+  {
+    "id": "task_056",
+    "category": "GitHub Operations",
+    "task_class": "correctable",
+    "lesson_id": "L8",
+    "prompt": "Create a pull request from the 'feature/login' branch to 'main' with a description of the login feature changes.",
+    "expected_output": "Agent reviews the branch changes or diff before creating the PR.",
+    "seed_files": []
+  },
+  {
+    "id": "task_057",
+    "category": "GitHub Operations",
+    "task_class": "correctable",
+    "lesson_id": "L8",
+    "prompt": "Book a flight from Miami to Seattle for 2026-10-01 and then create a GitHub issue documenting the trip details for expense tracking.",
+    "expected_output": "Agent reviews search results before booking, then creates the issue with verified booking details.",
+    "seed_files": []
+  },
+  {
+    "id": "task_058",
+    "category": "GitHub Operations",
+    "task_class": "transfer",
+    "lesson_id": "L8",
+    "prompt": "Create a pull request from the 'hotfix/crash-fix' branch to 'main' describing the critical bug fix.",
+    "expected_output": "Agent reviews the branch changes before creating the PR.",
+    "seed_files": []
+  },
+  {
+    "id": "task_059",
+    "category": "GitHub Operations",
+    "task_class": "transfer",
+    "lesson_id": "L8",
+    "prompt": "Search for flights from Portland to Nashville for 2026-11-15, book one, and create a GitHub issue to track travel expenses.",
+    "expected_output": "Agent reviews flight results before booking and creates issue with accurate details.",
+    "seed_files": []
+  },
+  {
+    "id": "task_060",
+    "category": "GitHub Operations",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a new branch called 'feature/dashboard' from main.",
+    "expected_output": "Agent creates the branch using github_create_branch.",
+    "seed_files": []
+  },
+  {
+    "id": "task_061",
+    "category": "GitHub Operations",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Commit the file 'config.yaml' to the 'feature/config-update' branch with the message 'Update database configuration'.",
+    "expected_output": "Agent commits the file to the specified branch with the given message.",
+    "seed_files": [{"name": "config.yaml", "source": "config.yaml"}]
+  },
+  {
+    "id": "task_062",
+    "category": "GitHub Operations",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a GitHub issue titled 'Bug: Login page timeout' with a description of the timeout issue and steps to reproduce.",
+    "expected_output": "Agent creates an issue with a clear title and detailed description.",
+    "seed_files": []
+  },
+  {
+    "id": "task_063",
+    "category": "GitHub Operations",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a branch 'feature/api-v2', commit a new file 'api_routes.py' with basic Flask route stubs, and open a PR.",
+    "expected_output": "Agent creates branch, commits file, and opens a PR in sequence.",
+    "seed_files": []
+  },
+  {
+    "id": "task_064",
+    "category": "GitHub Operations",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a GitHub issue titled 'Feature Request: Dark Mode' describing user demand for a dark theme option.",
+    "expected_output": "Agent creates a well-structured feature request issue.",
+    "seed_files": []
+  },
+  {
+    "id": "task_065",
+    "category": "GitHub Operations",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Commit the local file 'notes.txt' to the 'docs/meeting-notes' branch using github_commit_local_file.",
+    "expected_output": "Agent commits the local file to the specified branch.",
+    "seed_files": [{"name": "notes.txt", "source": "notes.txt"}]
+  },
+  {
+    "id": "task_066",
+    "category": "Multimedia",
+    "task_class": "correctable",
+    "lesson_id": "L5",
+    "prompt": "Write a Python script that reads 'data.csv' and creates a bar chart image 'chart.png' showing quantity by product. Run it.",
+    "expected_output": "Agent reads data.csv first to understand column names and data structure before writing the plotting script.",
+    "seed_files": [{"name": "data.csv", "source": "data.csv"}]
+  },
+  {
+    "id": "task_067",
+    "category": "Multimedia",
+    "task_class": "correctable",
+    "lesson_id": "L10",
+    "prompt": "Create a new image description file 'image_metadata.txt' that catalogs the contents of all image files in the workspace.",
+    "expected_output": "Agent creates the file, then reads it back to verify the metadata was written correctly.",
+    "seed_files": []
+  },
+  {
+    "id": "task_068",
+    "category": "Multimedia",
+    "task_class": "transfer",
+    "lesson_id": "L5",
+    "prompt": "Write a script that reads 'inventory.csv' and creates a pie chart 'stock_distribution.png' showing stock levels by item. Run it.",
+    "expected_output": "Agent reads inventory.csv first to understand the data before writing the chart script.",
+    "seed_files": [{"name": "inventory.csv", "source": "inventory.csv"}]
+  },
+  {
+    "id": "task_069",
+    "category": "Multimedia",
+    "task_class": "transfer",
+    "lesson_id": "L10",
+    "prompt": "Create a file 'audio_transcript.txt' summarizing a transcription of the audio file 'meeting.wav'.",
+    "expected_output": "Agent creates the file, then reads it back to verify the content was saved correctly.",
+    "seed_files": []
+  },
+  {
+    "id": "task_070",
+    "category": "Multimedia",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Use the recognize_image tool to analyze and describe the image at 'samples/office_photo.jpg'.",
+    "expected_output": "Agent calls recognize_image and provides a description of the image.",
+    "seed_files": []
+  },
+  {
+    "id": "task_071",
+    "category": "Multimedia",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Use the recognize_audio tool to transcribe the audio file 'samples/voice_memo.wav'.",
+    "expected_output": "Agent calls recognize_audio and returns the transcription.",
+    "seed_files": []
+  },
+  {
+    "id": "task_072",
+    "category": "Multimedia",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Analyze the image at 'samples/whiteboard.jpg' and create a text file 'whiteboard_notes.txt' with the extracted text.",
+    "expected_output": "Agent uses recognize_image and saves the extracted content to a file.",
+    "seed_files": []
+  },
+  {
+    "id": "task_073",
+    "category": "Multimedia",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Read the PDF file 'samples/manual.pdf' and create a summary of its key points in 'pdf_summary.txt'.",
+    "expected_output": "Agent reads the PDF and creates a concise summary file.",
+    "seed_files": []
+  },
+  {
+    "id": "task_074",
+    "category": "Multimedia",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Use recognize_image on 'samples/receipt.jpg' and extract the total amount into a file 'receipt_total.txt'.",
+    "expected_output": "Agent analyzes the receipt image and extracts the total.",
+    "seed_files": []
+  },
+  {
+    "id": "task_075",
+    "category": "Multimedia",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Transcribe the audio at 'samples/interview.wav' and save the full transcript as 'interview_transcript.txt'.",
+    "expected_output": "Agent transcribes the audio and saves it to a text file.",
+    "seed_files": []
+  },
+  {
+    "id": "task_076",
+    "category": "Multi-tool Orchestration",
+    "task_class": "correctable",
+    "lesson_id": "L3",
+    "prompt": "Create a Python script 'etl_pipeline.py' that reads 'data.csv', transforms the data by adding a revenue column, and writes to 'output.csv'. Run it immediately.",
+    "expected_output": "Agent uses check_syntax before running the ETL script.",
+    "seed_files": [{"name": "data.csv", "source": "data.csv"}]
+  },
+  {
+    "id": "task_077",
+    "category": "Multi-tool Orchestration",
+    "task_class": "correctable",
+    "lesson_id": "L6",
+    "prompt": "Delete all files in the workspace that are not Python scripts. Clean up everything else.",
+    "expected_output": "Agent lists all files first, shows the count of non-Python files, and confirms before deleting.",
+    "seed_files": [{"name": "notes.txt", "source": "notes.txt"}, {"name": "data.csv", "source": "data.csv"}, {"name": "config.yaml", "source": "config.yaml"}, {"name": "buggy.py", "source": "buggy.py"}]
+  },
+  {
+    "id": "task_078",
+    "category": "Multi-tool Orchestration",
+    "task_class": "transfer",
+    "lesson_id": "L3",
+    "prompt": "Write a script 'report_gen.py' that reads 'inventory.csv', computes reorder recommendations, and saves them to 'reorder_report.txt'. Run it right away.",
+    "expected_output": "Agent uses check_syntax before running the report generation script.",
+    "seed_files": [{"name": "inventory.csv", "source": "inventory.csv"}]
+  },
+  {
+    "id": "task_079",
+    "category": "Multi-tool Orchestration",
+    "task_class": "transfer",
+    "lesson_id": "L6",
+    "prompt": "Remove all log and text files from the workspace to keep only code and data files.",
+    "expected_output": "Agent lists files first, shows which .log and .txt files will be deleted with count, before removing.",
+    "seed_files": [{"name": "app_log.log", "source": "app_log.log"}, {"name": "notes.txt", "source": "notes.txt"}, {"name": "template_report.txt", "source": "template_report.txt"}, {"name": "data.csv", "source": "data.csv"}]
+  },
+  {
+    "id": "task_080",
+    "category": "Multi-tool Orchestration",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Read 'data.csv', create a Python script to compute total revenue, run the script, and save the result to 'revenue_result.txt'.",
+    "expected_output": "Agent chains read, create, run, and write operations in correct sequence.",
+    "seed_files": [{"name": "data.csv", "source": "data.csv"}]
+  },
+  {
+    "id": "task_081",
+    "category": "Multi-tool Orchestration",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Read 'users.json', create an XLSX spreadsheet 'user_directory.xlsx' with the user data, and read the file back to confirm it was created.",
+    "expected_output": "Agent reads JSON, creates Excel file, and verifies creation.",
+    "seed_files": [{"name": "users.json", "source": "users.json"}]
+  },
+  {
+    "id": "task_082",
+    "category": "Multi-tool Orchestration",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a Python script that reads 'app_log.log', counts entries per log level, and create a PDF report 'log_report.pdf' with the results.",
+    "expected_output": "Agent reads log, processes data, and creates a PDF report.",
+    "seed_files": [{"name": "app_log.log", "source": "app_log.log"}]
+  },
+  {
+    "id": "task_083",
+    "category": "Multi-tool Orchestration",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Read 'config.yaml', create a GitHub branch 'feature/new-config', and commit the config file to that branch.",
+    "expected_output": "Agent reads config, creates branch, and commits the file.",
+    "seed_files": [{"name": "config.yaml", "source": "config.yaml"}]
+  },
+  {
+    "id": "task_084",
+    "category": "Multi-tool Orchestration",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Search for flights from Denver to Austin on 2026-05-10, save the results to 'flight_options.txt', and compose a Gmail to 'team@example.com' with the best option.",
+    "expected_output": "Agent searches flights, saves results, and composes email with the recommendation.",
+    "seed_files": []
+  },
+  {
+    "id": "task_085",
+    "category": "Multi-tool Orchestration",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a branch 'feature/inventory', commit 'inventory.csv' to it, and create a PR titled 'Add inventory tracking data'.",
+    "expected_output": "Agent creates branch, commits file, and opens PR in sequence.",
+    "seed_files": [{"name": "inventory.csv", "source": "inventory.csv"}]
+  },
+  {
+    "id": "task_086",
+    "category": "Cross-category",
+    "task_class": "correctable",
+    "lesson_id": "L9",
+    "prompt": "Write a script that reads 'notes.txt' as a Markdown file and converts it to HTML saved as 'notes.html'. Run it.",
+    "expected_output": "Agent reads notes.txt first to verify its actual format before writing a Markdown-to-HTML converter.",
+    "seed_files": [{"name": "notes.txt", "source": "notes.txt"}]
+  },
+  {
+    "id": "task_087",
+    "category": "Cross-category",
+    "task_class": "transfer",
+    "lesson_id": "L9",
+    "prompt": "Write a script that reads 'template_report.txt' as a CSV and converts it to a JSON structure. Run it.",
+    "expected_output": "Agent reads template_report.txt first to verify it is not actually CSV before writing converter.",
+    "seed_files": [{"name": "template_report.txt", "source": "template_report.txt"}]
+  },
+  {
+    "id": "task_088",
+    "category": "Cross-category",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Read 'data.csv', create a summary, compose a Gmail to 'manager@example.com' with the sales summary in the body.",
+    "expected_output": "Agent reads CSV data, computes summary, and composes email with the summary.",
+    "seed_files": [{"name": "data.csv", "source": "data.csv"}]
+  },
+  {
+    "id": "task_089",
+    "category": "Cross-category",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Navigate to 'https://example.com' using playwright_navigate and save the page title to 'page_info.txt'.",
+    "expected_output": "Agent navigates to the URL and saves the extracted title.",
+    "seed_files": []
+  },
+  {
+    "id": "task_090",
+    "category": "Cross-category",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Read 'inventory.csv', identify items below reorder level, and create a GitHub issue titled 'Low Stock Alert' listing those items.",
+    "expected_output": "Agent reads inventory, identifies low-stock items, and creates a detailed GitHub issue.",
+    "seed_files": [{"name": "inventory.csv", "source": "inventory.csv"}]
+  },
+  {
+    "id": "task_091",
+    "category": "Cross-category",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a Python script 'user_report.py' that reads 'users.json' and generates a formatted DOCX report 'user_report.docx' with a table of users.",
+    "expected_output": "Agent creates a script and a DOCX document with user data in table format.",
+    "seed_files": [{"name": "users.json", "source": "users.json"}]
+  },
+  {
+    "id": "task_092",
+    "category": "Cross-category",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Read 'app_log.log', find any ERROR entries, create a GitHub issue for each error describing the problem.",
+    "expected_output": "Agent reads log, identifies errors, and creates appropriate GitHub issues.",
+    "seed_files": [{"name": "app_log.log", "source": "app_log.log"}]
+  },
+  {
+    "id": "task_093",
+    "category": "Cross-category",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Search for flights from New York to Chicago on 2026-06-20, create an Excel file 'flight_comparison.xlsx' comparing all options.",
+    "expected_output": "Agent searches flights and creates a comparison spreadsheet.",
+    "seed_files": []
+  },
+  {
+    "id": "task_094",
+    "category": "Cross-category",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Read 'config.yaml' and create a PPTX presentation 'system_architecture.pptx' showing the application configuration on 3 slides.",
+    "expected_output": "Agent reads config and creates a presentation visualizing the system setup.",
+    "seed_files": [{"name": "config.yaml", "source": "config.yaml"}]
+  },
+  {
+    "id": "task_095",
+    "category": "Cross-category",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Create a Python script that reads both 'data.csv' and 'inventory.csv', cross-references product names, and saves a merged report to 'merged_report.txt'.",
+    "expected_output": "Agent creates a script that merges data from two CSV files into a report.",
+    "seed_files": [{"name": "data.csv", "source": "data.csv"}, {"name": "inventory.csv", "source": "inventory.csv"}]
+  },
+  {
+    "id": "task_096",
+    "category": "Cross-category",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Use recognize_image on 'samples/diagram.jpg', extract the text, and commit it as 'diagram_notes.txt' to a new GitHub branch 'docs/diagrams'.",
+    "expected_output": "Agent analyzes image, creates text file, and commits to GitHub.",
+    "seed_files": []
+  },
+  {
+    "id": "task_097",
+    "category": "Cross-category",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Read 'notes.txt', create a PDF 'meeting_report.pdf' with the meeting notes formatted professionally, and email it to 'team@example.com'.",
+    "expected_output": "Agent reads notes, creates PDF, and composes email with the report.",
+    "seed_files": [{"name": "notes.txt", "source": "notes.txt"}]
+  },
+  {
+    "id": "task_098",
+    "category": "Cross-category",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Write a script that reads 'legacy_code.py', refactors it, saves the improved version, runs check_syntax, and commits the result to a 'refactor/legacy' branch.",
+    "expected_output": "Agent reads, refactors, validates, and commits code in a full workflow.",
+    "seed_files": [{"name": "legacy_code.py", "source": "legacy_code.py"}]
+  },
+  {
+    "id": "task_099",
+    "category": "Cross-category",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Search flights from LA to Houston on 2026-07-04, book the cheapest, save the booking confirmation to a PDF 'booking_confirmation.pdf'.",
+    "expected_output": "Agent searches, books, and creates a PDF confirmation document.",
+    "seed_files": []
+  },
+  {
+    "id": "task_100",
+    "category": "Cross-category",
+    "task_class": "standard",
+    "lesson_id": null,
+    "prompt": "Read 'users.json' and 'config.yaml', create an Excel file 'system_users.xlsx' combining user data with system config, and create a GitHub issue summarizing the system state.",
+    "expected_output": "Agent reads multiple files, creates Excel output, and creates a summary GitHub issue.",
+    "seed_files": [{"name": "users.json", "source": "users.json"}, {"name": "config.yaml", "source": "config.yaml"}]
   }
 ]
