@@ -1,0 +1,15 @@
+QUARTERLY REPORT - Q1 2026
+==========================
+
+Department: [DEPARTMENT]
+Author: [AUTHOR]
+Date: [DATE]
+
+1. Summary
+[SUMMARY]
+
+2. Key Metrics
+[METRICS]
+
+3. Action Items
+[ACTIONS]

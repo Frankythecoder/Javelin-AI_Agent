@@ -24,3 +24,4 @@ requests
 playwright
 pydantic
 duffel-api
+chromadb

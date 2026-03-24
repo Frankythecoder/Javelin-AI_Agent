@@ -1,0 +1,8 @@
+Meeting Notes - Q1 Planning
+Date: 2026-01-10
+Attendees: Alice, Bob, Carol
+
+Action items:
+- Alice: Update the dashboard by Friday
+- Bob: Fix the login bug
+- Carol: Write unit tests for the API

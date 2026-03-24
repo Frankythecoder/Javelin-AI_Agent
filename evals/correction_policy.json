@@ -1,0 +1,23 @@
+{
+    "_comment": "Maps 20 correctable task IDs to denial/correction actions for Phase B.",
+    "task_001": {"deny": "delete_file", "correction": "Use list_files first to show affected files before modifying."},
+    "task_002": {"deny": "rename_file", "correction": "Use list_files first to show affected files before modifying."},
+    "task_003": {"deny": "create_and_edit_file", "correction": "Use read_file first to understand current contents. Never edit blind."},
+    "task_004": {"deny": "delete_file", "correction": "List all affected items and show count before bulk actions."},
+    "task_016": {"deny": "run_code", "correction": "Use check_syntax to catch errors before executing."},
+    "task_017": {"deny": "run_code", "correction": "Check if required packages are installed before running scripts."},
+    "task_018": {"deny": "create_and_edit_file", "correction": "Read source data to verify structure before writing processing code."},
+    "task_019": {"deny": "run_code", "correction": "Read file header to verify format before running conversion."},
+    "task_031": {"deny": "create_and_edit_file", "correction": "Use read_file first to understand current contents. Never edit blind."},
+    "task_032": {"deny": "create_pdf", "correction": "Read any existing document or template first before creating new."},
+    "task_033": {"deny": "create_and_edit_file", "correction": "After creating a file, use read_file to verify it contains what you intended."},
+    "task_046": {"deny": "book_travel", "correction": "Review search/list results before committing to an action."},
+    "task_047": {"deny": "book_travel", "correction": "Review search/list results before committing to an action."},
+    "task_056": {"deny": "github_create_pr", "correction": "Review search/list results before committing to an action."},
+    "task_057": {"deny": "book_travel", "correction": "Review search/list results before committing to an action."},
+    "task_066": {"deny": "run_code", "correction": "Read source data to verify structure before writing processing code."},
+    "task_067": {"deny": "create_and_edit_file", "correction": "After creating a file, use read_file to verify it contains what you intended."},
+    "task_076": {"deny": "run_code", "correction": "Use check_syntax to catch errors before executing."},
+    "task_077": {"deny": "delete_file", "correction": "List all affected items and show count before bulk actions."},
+    "task_086": {"deny": "run_code", "correction": "Read file header to verify format before running conversion."}
+}

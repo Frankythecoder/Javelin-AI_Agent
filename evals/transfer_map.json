@@ -1,0 +1,23 @@
+{
+    "_comment": "Maps 20 transfer task IDs to their source lesson and correctable tasks.",
+    "task_005": {"lesson_id": "L1", "source_tasks": ["task_001", "task_002"]},
+    "task_006": {"lesson_id": "L1", "source_tasks": ["task_001", "task_002"]},
+    "task_007": {"lesson_id": "L2", "source_tasks": ["task_003"]},
+    "task_008": {"lesson_id": "L6", "source_tasks": ["task_004"]},
+    "task_020": {"lesson_id": "L3", "source_tasks": ["task_016"]},
+    "task_021": {"lesson_id": "L4", "source_tasks": ["task_017"]},
+    "task_022": {"lesson_id": "L5", "source_tasks": ["task_018"]},
+    "task_023": {"lesson_id": "L9", "source_tasks": ["task_019"]},
+    "task_034": {"lesson_id": "L2", "source_tasks": ["task_003", "task_031"]},
+    "task_035": {"lesson_id": "L7", "source_tasks": ["task_032"]},
+    "task_036": {"lesson_id": "L10", "source_tasks": ["task_033"]},
+    "task_048": {"lesson_id": "L8", "source_tasks": ["task_046", "task_047"]},
+    "task_049": {"lesson_id": "L8", "source_tasks": ["task_046", "task_047"]},
+    "task_058": {"lesson_id": "L8", "source_tasks": ["task_056", "task_057"]},
+    "task_059": {"lesson_id": "L8", "source_tasks": ["task_056", "task_057"]},
+    "task_068": {"lesson_id": "L5", "source_tasks": ["task_018", "task_066"]},
+    "task_069": {"lesson_id": "L10", "source_tasks": ["task_033", "task_067"]},
+    "task_078": {"lesson_id": "L3", "source_tasks": ["task_016", "task_076"]},
+    "task_079": {"lesson_id": "L6", "source_tasks": ["task_004", "task_077"]},
+    "task_087": {"lesson_id": "L9", "source_tasks": ["task_019", "task_086"]}
+}
