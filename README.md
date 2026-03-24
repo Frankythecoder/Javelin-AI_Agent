@@ -2,7 +2,7 @@
 
 ## Overview
 
-This project is a Django-based web application that integrates with OpenAI's GPT-4o model to provide advanced agentic capabilities with human-in-the-loop controls. The system features a modern chat UI, 25+ specialized tools for file management, code execution, multimedia processing, and external integrations, along with comprehensive safety mechanisms including dry-run mode, agent control, and prompt injection detection.
+This project is a Django-based web application that integrates with OpenAI's GPT-5.4 model to provide advanced agentic capabilities with human-in-the-loop controls. The system features a modern chat UI, 25+ specialized tools for file management, code execution, multimedia processing, and external integrations, along with comprehensive safety mechanisms including dry-run mode, agent control, and prompt injection detection.
 
 ---
 
@@ -37,9 +37,9 @@ This project is a Django-based web application that integrates with OpenAI's GPT
 - `lint_code` - Static analysis with pylint, eslint, cppcheck, clippy, go vet, etc.
 
 ### **Multimedia Recognition (3 Tools)**
-- **Image Analysis:** `recognize_image` - GPT-4o Vision for image understanding
-- **Video Analysis:** `recognize_video` - Frame extraction + GPT-4o Vision for video content
-- **Audio Analysis:** `recognize_audio` - GPT-4o Audio for speech-to-text, music identification, and ambient sound recognition
+- **Image Analysis:** `recognize_image` - GPT-5.4 Vision for image understanding
+- **Video Analysis:** `recognize_video` - Frame extraction + GPT-5.4 Vision for video content
+- **Audio Analysis:** `recognize_audio` - GPT-5.4 Audio for speech-to-text, music identification, and ambient sound recognition
   - Supports: WAV, MP3, OGG, FLAC, WebM, M4A, MP4, AAC, WMA, Opus
   - Automatic format conversion for unsupported formats using pydub
 
@@ -148,7 +148,7 @@ pip install -r requirements.txt
 
 **Dependencies include:**
 - Django - Web framework
-- openai - GPT-4o integration
+- openai - GPT-5.4 integration
 - opencv-python - Video frame extraction
 - pydub - Audio format conversion
 - reportlab, python-docx, openpyxl, python-pptx - Document creation
@@ -597,9 +597,9 @@ File operations are constrained by:
 - ✅ Output truncation (10k chars) to prevent rate limit abuse
 - 💡 Comparable to a junior DevOps engineer or software developer
 
-### **4. Multimedia Recognition (GPT-4o)**
+### **4. Multimedia Recognition (GPT-5.4)**
 - ✅ **Image Analysis:** Object detection, OCR, scene understanding
-- ✅ **Video Analysis:** Frame extraction + GPT-4o Vision for video content
+- ✅ **Video Analysis:** Frame extraction + GPT-5.4 Vision for video content
 - ✅ **Audio Analysis:** Speech-to-text, music identification, ambient sound recognition
   - Supports 10+ audio formats (WAV, MP3, OGG, FLAC, WebM, M4A, etc.)
   - Automatic format conversion using pydub
@@ -908,7 +908,7 @@ def read_file_langchain(path: str) -> str:
 from langchain.chat_models import ChatOpenAI, ChatAnthropic
 
 # Easy model switching
-llm = ChatOpenAI(model="gpt-4o")
+llm = ChatOpenAI(model="gpt-5.4")
 # or
 llm = ChatAnthropic(model="claude-3-5-sonnet-20241022")
 ```
@@ -1009,7 +1009,7 @@ These remain outside the framework for security isolation.
 - Python 3.8+
 - Django 4.x
 - SQLite (dev) / PostgreSQL (prod)
-- OpenAI API (gpt-4o, gpt-4o-audio-preview)
+- OpenAI API (gpt-5.4, gpt-5.4-audio-preview)
 
 **Frontend:**
 - Vanilla JavaScript
@@ -1108,7 +1108,7 @@ SOFTWARE.
 ## 🙏 Acknowledgments
 
 **Technologies:**
-- [OpenAI](https://openai.com/) - GPT-4o model and API
+- [OpenAI](https://openai.com/) - GPT-5.4 model and API
 - [Django](https://www.djangoproject.com/) - Web framework
 - [Model Context Protocol](https://modelcontextprotocol.io/) - Tool integration standard
 - [Playwright](https://playwright.dev/) - Browser automation

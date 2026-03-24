@@ -8,7 +8,7 @@ from agents.control import ToolDefinition
 
 
 def recognize_image_tool(args: Dict[str, Any]) -> str:
-    """Use GPT-4o vision to recognize contents of an image (jpg, png)."""
+    """Use GPT-5.4 vision to recognize contents of an image (jpg, png)."""
     path = args.get('path', '')
     prompt = args.get('prompt', 'What is in this image? Provide a detailed description.')
 
@@ -22,7 +22,7 @@ def recognize_image_tool(args: Dict[str, Any]) -> str:
 
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-5.4",
             messages=[
                 {
                     "role": "user",
@@ -46,7 +46,7 @@ def recognize_image_tool(args: Dict[str, Any]) -> str:
 
 
 def recognize_video_tool(args: Dict[str, Any]) -> str:
-    """Use GPT-4o vision to recognize contents of a video (mp4) by extracting frames."""
+    """Use GPT-5.4 vision to recognize contents of a video (mp4) by extracting frames."""
     path = args.get('path', '')
     prompt = args.get('prompt', 'These are frames from a video. What is happening? Provide a summary and details.')
     max_frames = args.get('max_frames', 10)
@@ -95,7 +95,7 @@ def recognize_video_tool(args: Dict[str, Any]) -> str:
             })
 
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-5.4",
             messages=[
                 {
                     "role": "user",
@@ -111,7 +111,7 @@ def recognize_video_tool(args: Dict[str, Any]) -> str:
 
 
 def recognize_audio_tool(args: Dict[str, Any]) -> str:
-    """Use GPT-4o to analyze and summarize an audio file, including speech, music, and sounds."""
+    """Use GPT-5.4 to analyze and summarize an audio file, including speech, music, and sounds."""
     path = args.get('path', '')
     prompt = args.get('prompt', 'Analyze this audio file. Describe everything you hear: transcribe any speech, identify any music (genre, instruments, mood), and note any ambient or other sounds.')
 
@@ -126,7 +126,7 @@ def recognize_audio_tool(args: Dict[str, Any]) -> str:
 
     converted_path = None
     try:
-        # GPT-4o audio input only accepts wav and mp3; convert other formats
+        # GPT-5.4 audio input only accepts wav and mp3; convert other formats
         if ext in ('.wav', '.mp3'):
             audio_path = path
             audio_format = ext[1:]  # strip the leading dot
@@ -143,7 +143,7 @@ def recognize_audio_tool(args: Dict[str, Any]) -> str:
 
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
         response = client.chat.completions.create(
-            model="gpt-4o-audio-preview",
+            model="gpt-5.4-audio-preview",
             messages=[
                 {
                     "role": "user",
@@ -172,7 +172,7 @@ def recognize_audio_tool(args: Dict[str, Any]) -> str:
 
 RECOGNIZE_IMAGE_DEFINITION = ToolDefinition(
     name="recognize_image",
-    description="Analyze the contents of an image (jpg, png) using GPT-4o vision. Provide a path and optional prompt.",
+    description="Analyze the contents of an image (jpg, png) using GPT-5.4 vision. Provide a path and optional prompt.",
     parameters={
         "type": "object",
         "properties": {
@@ -193,7 +193,7 @@ RECOGNIZE_IMAGE_DEFINITION = ToolDefinition(
 
 RECOGNIZE_VIDEO_DEFINITION = ToolDefinition(
     name="recognize_video",
-    description="Analyze the contents of a video (mp4) using GPT-4o vision by extracting frames. Provide a path and optional prompt.",
+    description="Analyze the contents of a video (mp4) using GPT-5.4 vision by extracting frames. Provide a path and optional prompt.",
     parameters={
         "type": "object",
         "properties": {
@@ -218,7 +218,7 @@ RECOGNIZE_VIDEO_DEFINITION = ToolDefinition(
 
 RECOGNIZE_AUDIO_DEFINITION = ToolDefinition(
     name="recognize_audio",
-    description="Analyze an audio file (wav, mp3, ogg, flac, webm, m4a, mp4, aac, wma, opus) using GPT-4o. Identifies and summarizes speech, music, and ambient sounds in the file.",
+    description="Analyze an audio file (wav, mp3, ogg, flac, webm, m4a, mp4, aac, wma, opus) using GPT-5.4. Identifies and summarizes speech, music, and ambient sounds in the file.",
     parameters={
         "type": "object",
         "properties": {

@@ -76,8 +76,8 @@ tools = [
     LIST_BOOKINGS_DEFINITION,
 ]
 
-model_name = 'gpt-4.1'
-light_model_name = 'gpt-4.1-mini'
+model_name = 'gpt-5.4'
+light_model_name = 'gpt-5.4-mini'
 agent = Agent(client, model_name, get_user_message=None, tools=tools, light_model_name=light_model_name)
 
 def chat_page(request):

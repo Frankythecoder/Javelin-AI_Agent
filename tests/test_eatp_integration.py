@@ -31,7 +31,7 @@ class TestEATPIntegration:
         from openai import OpenAI
         client = MagicMock(spec=OpenAI)
         client.api_key = "test-key"
-        agent = Agent(client, "gpt-4.1", lambda: ("", False), [])
+        agent = Agent(client, "gpt-5.4", lambda: ("", False), [])
         assert hasattr(agent, 'experience_store')
         assert isinstance(agent.experience_store, ExperienceStore)
 
@@ -42,7 +42,7 @@ class TestEATPIntegration:
         from openai import OpenAI
         client = MagicMock(spec=OpenAI)
         client.api_key = "test-key"
-        agent = Agent(client, "gpt-4.1", lambda: ("", False), [])
+        agent = Agent(client, "gpt-5.4", lambda: ("", False), [])
 
         # Mock the experience store
         mock_record = ExperienceRecord(
@@ -86,7 +86,7 @@ class TestEATPIntegration:
         from openai import OpenAI
         client = MagicMock(spec=OpenAI)
         client.api_key = "test-key"
-        agent = Agent(client, "gpt-4.1", lambda: ("", False), [])
+        agent = Agent(client, "gpt-5.4", lambda: ("", False), [])
 
         agent.experience_store.retrieve = MagicMock(return_value=[])
         agent.experience_store.format_for_prompt = MagicMock(return_value="")
@@ -118,7 +118,7 @@ class TestExperienceLogging:
         from openai import OpenAI
         client = MagicMock(spec=OpenAI)
         client.api_key = "test-key"
-        agent = Agent(client, "gpt-4.1", lambda: ("", False), [])
+        agent = Agent(client, "gpt-5.4", lambda: ("", False), [])
 
         # Mock experience store
         agent.experience_store.retrieve = MagicMock(return_value=[])
@@ -155,7 +155,7 @@ class TestExecuteDryRunLogging:
         from openai import OpenAI
         client = MagicMock(spec=OpenAI)
         client.api_key = "test-key"
-        agent = Agent(client, "gpt-4.1", lambda: ("", False), [])
+        agent = Agent(client, "gpt-5.4", lambda: ("", False), [])
 
         # Mock experience store
         agent.experience_store.retrieve = MagicMock(return_value=[])

@@ -86,7 +86,7 @@ def main():
         CANCEL_BOOKING_DEFINITION,
         RATE_EXPERIENCE_DEFINITION,
     ]
-    model_name = 'gpt-4.1'
+    model_name = 'gpt-5.4'
 
     def get_user_message():
         try:
@@ -95,7 +95,7 @@ def main():
         except EOFError:
             return "", False
 
-    agent = Agent(client, model_name, get_user_message, tools, light_model_name='gpt-4.1-mini')
+    agent = Agent(client, model_name, get_user_message, tools, light_model_name='gpt-5.4-mini')
     try:
         agent.run()
     except Exception as e:
@@ -118,7 +118,7 @@ class AgentState(TypedDict):
 
 
 class Agent(AgentMessagesMixin):
-    def __init__(self, client, model_name, get_user_message, tools: List[ToolDefinition], max_history: int = 15, light_model_name: str = "gpt-4.1-mini"):
+    def __init__(self, client, model_name, get_user_message, tools: List[ToolDefinition], max_history: int = 15, light_model_name: str = "gpt-5.4-mini"):
         self.client = client
         self.model_name = model_name
         self.get_user_message = get_user_message

@@ -56,10 +56,10 @@ def run_evals(output_file='results.json', eatp_mode='cold', correction_policy_fi
         tasks = json.load(f)
 
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
-    model_name = 'gpt-4.1'
+    model_name = 'gpt-5.4'
 
     # We don't need a real get_user_message for chat_once
-    agent = Agent(client, model_name, lambda: ("", False), tools, light_model_name='gpt-4.1-mini')
+    agent = Agent(client, model_name, lambda: ("", False), tools, light_model_name='gpt-5.4-mini')
 
     # Mock external API tools for deterministic eval
     from evals.mocks import MOCK_REGISTRY

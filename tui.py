@@ -266,7 +266,7 @@ class AgentTUI(App):
 
     def _init_agent(self):
         client = OpenAI(api_key=django_settings.OPENAI_API_KEY)
-        self.agent = Agent(client, "gpt-4.1", get_user_message=None, tools=ALL_TOOLS, light_model_name="gpt-4.1-mini")
+        self.agent = Agent(client, "gpt-5.4", get_user_message=None, tools=ALL_TOOLS, light_model_name="gpt-5.4-mini")
 
     def _show_welcome(self):
         log = self.query_one("#chat-log", RichLog)
