@@ -616,7 +616,7 @@
     "category": "Multimedia",
     "task_class": "transfer",
     "lesson_id": "L10",
-    "prompt": "Create a file 'audio_transcript.txt' summarizing a transcription of the audio file 'meeting.wav'.",
+    "prompt": "Create a file 'video_summary.txt' summarizing the contents of the video file 'samples/test_video.mp4'.",
     "expected_output": "Agent creates the file, then reads it back to verify the content was saved correctly.",
     "seed_files": []
   },
@@ -625,7 +625,7 @@
     "category": "Multimedia",
     "task_class": "standard",
     "lesson_id": null,
-    "prompt": "Use the recognize_image tool to analyze and describe the image at 'samples/office_photo.jpg'.",
+    "prompt": "Use the recognize_image tool to analyze and describe the image at 'samples/test_image.jpg'.",
     "expected_output": "Agent calls recognize_image and provides a description of the image.",
     "seed_files": []
   },
@@ -634,8 +634,8 @@
     "category": "Multimedia",
     "task_class": "standard",
     "lesson_id": null,
-    "prompt": "Use the recognize_audio tool to transcribe the audio file 'samples/voice_memo.wav'.",
-    "expected_output": "Agent calls recognize_audio and returns the transcription.",
+    "prompt": "Use the recognize_video tool to analyze and describe the video at 'samples/test_video.mp4'.",
+    "expected_output": "Agent calls recognize_video and returns a description of the video content.",
     "seed_files": []
   },
   {
@@ -643,7 +643,7 @@
     "category": "Multimedia",
     "task_class": "standard",
     "lesson_id": null,
-    "prompt": "Analyze the image at 'samples/whiteboard.jpg' and create a text file 'whiteboard_notes.txt' with the extracted text.",
+    "prompt": "Analyze the image at 'samples/test_image.jpg' and create a text file 'image_notes.txt' with a description of the extracted content.",
     "expected_output": "Agent uses recognize_image and saves the extracted content to a file.",
     "seed_files": []
   },
@@ -652,17 +652,17 @@
     "category": "Multimedia",
     "task_class": "standard",
     "lesson_id": null,
-    "prompt": "Read the PDF file 'samples/manual.pdf' and create a summary of its key points in 'pdf_summary.txt'.",
-    "expected_output": "Agent reads the PDF and creates a concise summary file.",
-    "seed_files": []
+    "prompt": "Create a PDF 'sample_report.pdf' from the content in 'notes.txt', then use read_pdf to read it back and summarize the content in 'pdf_summary.txt'.",
+    "expected_output": "Agent creates the PDF from notes.txt, reads it back with read_pdf, and creates a summary file.",
+    "seed_files": [{"name": "notes.txt", "source": "notes.txt"}]
   },
   {
     "id": "task_074",
     "category": "Multimedia",
     "task_class": "standard",
     "lesson_id": null,
-    "prompt": "Use recognize_image on 'samples/receipt.jpg' and extract the total amount into a file 'receipt_total.txt'.",
-    "expected_output": "Agent analyzes the receipt image and extracts the total.",
+    "prompt": "Use recognize_image on 'samples/test_image.jpg' and extract a detailed description of the contents into a file 'image_description.txt'.",
+    "expected_output": "Agent analyzes the image and saves a detailed description.",
     "seed_files": []
   },
   {
@@ -670,8 +670,8 @@
     "category": "Multimedia",
     "task_class": "standard",
     "lesson_id": null,
-    "prompt": "Transcribe the audio at 'samples/interview.wav' and save the full transcript as 'interview_transcript.txt'.",
-    "expected_output": "Agent transcribes the audio and saves it to a text file.",
+    "prompt": "Analyze the video at 'samples/test_video.mp4' and save a detailed description of the video content as 'video_description.txt'.",
+    "expected_output": "Agent analyzes the video and saves a description to a text file.",
     "seed_files": []
   },
   {
@@ -859,7 +859,7 @@
     "category": "Cross-category",
     "task_class": "standard",
     "lesson_id": null,
-    "prompt": "Use recognize_image on 'samples/diagram.jpg', extract the text, and commit it as 'diagram_notes.txt' to a new GitHub branch 'docs/diagrams'.",
+    "prompt": "Use recognize_image on 'samples/test_image.jpg', extract a description, and commit it as 'image_notes.txt' to a new GitHub branch 'docs/images'.",
     "expected_output": "Agent analyzes image, creates text file, and commits to GitHub.",
     "seed_files": []
   },
