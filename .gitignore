@@ -24,3 +24,6 @@ samples/test_video.mp4
 # Claude and Zencoder
 .claude/
 **/.zencoder/
+.claude
+.zenflow
+.pytest_cache
