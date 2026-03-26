@@ -20,3 +20,7 @@ db.sqlite3
 samples/test_imap.py
 samples/test_image.jpg
 samples/test_video.mp4
+
+# Claude and Zencoder
+.claude/
+**/.zencoder/
