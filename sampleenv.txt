@@ -1,0 +1,13 @@
+AWS_ACCESS_KEY_ID=your_aws_access_key_id
+AWS_SECRET_ACCESS_KEY=your_aws_access_key
+AWS_STORAGE_BUCKET_NAME=your_aws_s3_bucket_name
+AWS_S3_REGION_NAME=your_aws_region
+OPENAI_API_KEY=your_openai_api_kay
+GMAIL_ADDRESS=your_primary_gmail_address
+GMAIL_PASSWORD=your_gmail_password_used_for_api
+CHROME_PROFILE_DIRECTORY=Profile 23(usually similar across all systems regardles of the user)
+GITHUB_REPO=your_github_repo(your_github_username/your_repo_name)
+GITHUB_TOKEN=your_github_token
+AUTO_TICKET_ON_FAILURE=true
+AUTO_TICKET_ASSIGNEE=your_github_username
+DUFFEL_API_TOKEN=your_duffel_api_token
