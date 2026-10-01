@@ -11,3 +11,5 @@ GITHUB_TOKEN=your_github_token
 AUTO_TICKET_ON_FAILURE=true
 AUTO_TICKET_ASSIGNEE=your_github_username
 DUFFEL_API_TOKEN=your_duffel_api_token
+MODEL_NAME=gpt-6-sol
+LIGHT_MODEL_NAME=gpt-5.6-terra

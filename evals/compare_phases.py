@@ -278,6 +278,8 @@ def compare_configs(config_files, config_labels, correction_policy_file=None):
             settings.configure(
                 DEBUG=True,
                 OPENAI_API_KEY=os.getenv("OPENAI_API_KEY"),
+                MODEL_NAME=os.getenv("MODEL_NAME", "gpt-6-sol"),
+                LIGHT_MODEL_NAME=os.getenv("LIGHT_MODEL_NAME", "gpt-5.6-terra"),
                 INSTALLED_APPS=['chat'],
                 DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3',
                                        'NAME': os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'db.sqlite3')}},

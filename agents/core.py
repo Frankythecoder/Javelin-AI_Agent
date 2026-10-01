@@ -1,4 +1,5 @@
 import json
+import os
 from typing import Dict, List, Any, Optional, TypedDict
 
 from openai import OpenAI
@@ -86,7 +87,7 @@ def main():
         CANCEL_BOOKING_DEFINITION,
         RATE_EXPERIENCE_DEFINITION,
     ]
-    model_name = 'gpt-4.1'
+    model_name = settings.MODEL_NAME
 
     def get_user_message():
         try:
@@ -95,11 +96,77 @@ def main():
         except EOFError:
             return "", False
 
-    agent = Agent(client, model_name, get_user_message, tools, light_model_name='gpt-4.1-mini')
+    agent = Agent(client, model_name, get_user_message, tools, light_model_name=settings.LIGHT_MODEL_NAME)
     try:
         agent.run()
     except Exception as e:
         print(f"Error: {str(e)}")
+
+
+# Reasoning effort sent to the chat-completions endpoint. Must be "none" for
+# reasoning models when function tools are bound, otherwise OpenAI returns
+# invalid_request_error on the reasoning_effort param.
+_REASONING_EFFORT = "none"
+
+# Models that reject reasoning_effort="none" outright (e.g. gpt-6-astra only
+# accepts low/medium/high/xhigh) and also reject function tools with any other
+# effort on /v1/chat/completions. The only way to give them tools is the
+# Responses API. Comma-separated, overridable for newer models.
+_RESPONSES_API_MODELS = {
+    m.strip() for m in os.getenv("RESPONSES_API_MODELS", "gpt-6-astra").split(",") if m.strip()
+}
+
+# Effort used for those models. "low" keeps long tool-call generations inside
+# _REQUEST_TIMEOUT.
+_RESPONSES_REASONING_EFFORT = os.getenv("RESPONSES_REASONING_EFFORT", "high")
+
+# Wall-clock budget for a single LLM call. Latency here is driven by how many
+# tokens the model *generates*, not by context size: a complex task that writes
+# a large file in one tool call emits ~10k completion tokens and takes 60-90s.
+# The previous 30s budget cut those off mid-generation with APITimeoutError,
+# which surfaced as a failure at the call_model node partway through a task.
+_REQUEST_TIMEOUT = float(os.getenv("LLM_REQUEST_TIMEOUT", "180"))
+
+
+class _TextContentChatOpenAI(ChatOpenAI):
+    """ChatOpenAI that always returns AIMessage.content as a plain string.
+
+    The Responses API returns content as a list of blocks (text, function_call,
+    reasoning). The rest of Agent and the chat UI treat content as a string, so
+    flatten it to the text blocks. Tool calls are unaffected: they live on
+    AIMessage.tool_calls, and the API accepts them back without the block ids.
+    """
+
+    @staticmethod
+    def _flatten(result):
+        for gen in result.generations:
+            if isinstance(gen.message.content, list):
+                gen.message.content = gen.message.text
+                gen.text = gen.message.content
+        return result
+
+    def _generate(self, *args, **kwargs):
+        return self._flatten(super()._generate(*args, **kwargs))
+
+    async def _agenerate(self, *args, **kwargs):
+        return self._flatten(await super()._agenerate(*args, **kwargs))
+
+
+def _build_llm(model_name: str, api_key: str) -> ChatOpenAI:
+    if model_name in _RESPONSES_API_MODELS:
+        return _TextContentChatOpenAI(
+            model=model_name,
+            api_key=api_key,
+            request_timeout=_REQUEST_TIMEOUT,
+            reasoning_effort=_RESPONSES_REASONING_EFFORT,
+            use_responses_api=True,
+        )
+    return ChatOpenAI(
+        model=model_name,
+        api_key=api_key,
+        request_timeout=_REQUEST_TIMEOUT,
+        reasoning_effort=_REASONING_EFFORT,
+    )
 
 
 class AgentState(TypedDict):
@@ -118,9 +185,13 @@ class AgentState(TypedDict):
 
 
 class Agent(AgentMessagesMixin):
-    def __init__(self, client, model_name, get_user_message, tools: List[ToolDefinition], max_history: int = 15, light_model_name: str = "gpt-4.1-mini"):
+    def __init__(self, client, model_name, get_user_message, tools: List[ToolDefinition], max_history: int = 15, light_model_name: Optional[str] = None):
+        # Resolved lazily so importing this module does not require Django settings.
+        model_name = model_name or settings.MODEL_NAME
+        light_model_name = light_model_name or settings.LIGHT_MODEL_NAME
         self.client = client
         self.model_name = model_name
+        self.light_model_name = light_model_name
         self.get_user_message = get_user_message
         self.tools = tools
         self.max_history = max_history
@@ -130,20 +201,16 @@ class Agent(AgentMessagesMixin):
         self.langchain_tools = [tool_definition_to_langchain(td) for td in tools]
         self.tool_map = {t.name: t for t in self.langchain_tools}
 
+        # Reasoning models reject function tools on /v1/chat/completions unless
+        # reasoning effort is 'none'. Models that don't support 'none' at all
+        # go through the Responses API instead, with content flattened back to
+        # a plain string. See _build_llm.
         # Create ChatOpenAI model and bind tools
-        self.llm = ChatOpenAI(
-            model=model_name,
-            api_key=client.api_key,
-            request_timeout=30,
-        )
+        self.llm = _build_llm(model_name, client.api_key)
         self.llm_with_tools = self.llm.bind_tools(self.langchain_tools)
 
         # Light model for simple tasks (email, templates, formatting)
-        self.llm_mini = ChatOpenAI(
-            model=light_model_name,
-            api_key=client.api_key,
-            request_timeout=30,
-        )
+        self.llm_mini = _build_llm(light_model_name, client.api_key)
         self.llm_mini_with_tools = self.llm_mini.bind_tools(self.langchain_tools)
 
         # Keep for backward compat

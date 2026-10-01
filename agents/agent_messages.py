@@ -5,6 +5,13 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMe
 
 from agents.helpers import is_prompt_injection
 
+# Stand-in response for a tool_call that never ran. OpenAI requires every
+# tool_call to have a matching tool message, and telling the model the step was
+# skipped is more useful than silently dropping the request.
+_UNEXECUTED_TOOL_RESULT = (
+    "This tool call was not executed (the plan was stopped or denied before it ran)."
+)
+
 
 class AgentMessagesMixin:
     """Mixin providing message conversion, trimming, summarisation and
@@ -52,36 +59,64 @@ class AgentMessagesMixin:
         return messages
 
     def _strip_orphaned_tool_calls(self, messages: List[BaseMessage]) -> List[BaseMessage]:
-        """Remove trailing AIMessage with tool_calls that have no matching ToolMessages.
+        """Repair tool_call/tool-response pairing so the API accepts the history.
 
-        This happens when execution is stopped during plan approval — the
-        AIMessage with tool_calls is saved to history but no ToolMessages
-        were ever appended.  OpenAI rejects such sequences, so we strip
-        them before the next LLM call.
+        Two invalid shapes occur in practice:
+
+        * An ``AIMessage`` whose ``tool_calls`` have no matching
+          ``ToolMessage`` — or only some of them — because execution was
+          stopped or denied partway through an approved plan.
+        * A ``ToolMessage`` with no preceding ``AIMessage`` that requested it,
+          left behind when trimming drops the parent.
+
+        Unanswered tool_calls get an explicit placeholder response rather than
+        deleting the ``AIMessage``: that keeps results which *did* execute and
+        lets the model see which steps were skipped. Tool responses nobody
+        asked for are dropped. The whole history is repaired, not just the
+        trailing block.
         """
         if not messages:
             return messages
 
-        # Walk backwards to find the last AIMessage with tool_calls
-        for i in range(len(messages) - 1, -1, -1):
-            msg = messages[i]
-            if isinstance(msg, AIMessage) and msg.tool_calls:
-                # Check if ALL tool_calls have matching ToolMessages after this index
-                tool_call_ids = {tc["id"] for tc in msg.tool_calls}
-                responded_ids = {
-                    m.tool_call_id for m in messages[i + 1:]
-                    if isinstance(m, ToolMessage)
-                }
-                if not tool_call_ids.issubset(responded_ids):
-                    # Orphaned — remove this AIMessage
-                    return messages[:i] + messages[i + 1:]
-                # Found a complete AIMessage with tool_calls — history is valid
-                break
-            # Stop searching at first non-tool, non-AI message going backwards
-            if not isinstance(msg, ToolMessage):
-                break
+        repaired: List[BaseMessage] = []
+        i = 0
+        total = len(messages)
 
-        return messages
+        while i < total:
+            msg = messages[i]
+
+            if isinstance(msg, AIMessage) and msg.tool_calls:
+                # Gather the contiguous run of tool responses that follows.
+                j = i + 1
+                answered: Dict[str, ToolMessage] = {}
+                while j < total and isinstance(messages[j], ToolMessage):
+                    answered.setdefault(messages[j].tool_call_id, messages[j])
+                    j += 1
+
+                repaired.append(msg)
+                for tool_call in msg.tool_calls:
+                    existing = answered.get(tool_call["id"])
+                    if existing is not None:
+                        repaired.append(existing)
+                    else:
+                        repaired.append(ToolMessage(
+                            content=_UNEXECUTED_TOOL_RESULT,
+                            tool_call_id=tool_call["id"],
+                            name=tool_call.get("name", "") or "",
+                        ))
+                # Responses in the run that no tool_call asked for are dropped.
+                i = j
+                continue
+
+            if isinstance(msg, ToolMessage):
+                # No preceding AIMessage requested this response.
+                i += 1
+                continue
+
+            repaired.append(msg)
+            i += 1
+
+        return repaired
 
     def _messages_to_dicts(self, messages: List[BaseMessage]) -> List[Dict[str, Any]]:
         """Convert LangChain messages back to the frontend dict format."""

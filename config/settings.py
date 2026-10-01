@@ -17,6 +17,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+
+# Heavy model for multi-step reasoning, code generation and vision;
+# light model for simple tasks (email, templates, formatting) and task classification.
+MODEL_NAME = os.getenv('MODEL_NAME')
+LIGHT_MODEL_NAME = os.getenv('LIGHT_MODEL_NAME')
 GMAIL_SENDER_ADDRESS = os.getenv('GMAIL_ADDRESS')
 GMAIL_APP_PASSWORD = os.getenv('GMAIL_PASSWORD')
 CHROME_PROFILE_DIRECTORY = os.getenv('CHROME_PROFILE_DIRECTORY', 'Default')

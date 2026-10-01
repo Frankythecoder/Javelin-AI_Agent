@@ -12,6 +12,8 @@ if not settings.configured:
     settings.configure(
         DEBUG=True,
         OPENAI_API_KEY="test-key",
+        MODEL_NAME="gpt-6-sol",
+        LIGHT_MODEL_NAME="gpt-5.6-terra",
         INSTALLED_APPS=['chat'],
         DATABASES={
             'default': {
@@ -31,7 +33,7 @@ class TestEATPIntegration:
         from openai import OpenAI
         client = MagicMock(spec=OpenAI)
         client.api_key = "test-key"
-        agent = Agent(client, "gpt-4.1", lambda: ("", False), [])
+        agent = Agent(client, "gpt-6-sol", lambda: ("", False), [])
         assert hasattr(agent, 'experience_store')
         assert isinstance(agent.experience_store, ExperienceStore)
 
@@ -42,7 +44,7 @@ class TestEATPIntegration:
         from openai import OpenAI
         client = MagicMock(spec=OpenAI)
         client.api_key = "test-key"
-        agent = Agent(client, "gpt-4.1", lambda: ("", False), [])
+        agent = Agent(client, "gpt-6-sol", lambda: ("", False), [])
 
         # Mock the experience store
         mock_record = ExperienceRecord(
@@ -86,7 +88,7 @@ class TestEATPIntegration:
         from openai import OpenAI
         client = MagicMock(spec=OpenAI)
         client.api_key = "test-key"
-        agent = Agent(client, "gpt-4.1", lambda: ("", False), [])
+        agent = Agent(client, "gpt-6-sol", lambda: ("", False), [])
 
         agent.experience_store.retrieve = MagicMock(return_value=[])
         agent.experience_store.format_for_prompt = MagicMock(return_value="")
@@ -118,7 +120,7 @@ class TestExperienceLogging:
         from openai import OpenAI
         client = MagicMock(spec=OpenAI)
         client.api_key = "test-key"
-        agent = Agent(client, "gpt-4.1", lambda: ("", False), [])
+        agent = Agent(client, "gpt-6-sol", lambda: ("", False), [])
 
         # Mock experience store
         agent.experience_store.retrieve = MagicMock(return_value=[])
@@ -155,7 +157,7 @@ class TestExecuteDryRunLogging:
         from openai import OpenAI
         client = MagicMock(spec=OpenAI)
         client.api_key = "test-key"
-        agent = Agent(client, "gpt-4.1", lambda: ("", False), [])
+        agent = Agent(client, "gpt-6-sol", lambda: ("", False), [])
 
         # Mock experience store
         agent.experience_store.retrieve = MagicMock(return_value=[])

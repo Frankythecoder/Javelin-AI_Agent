@@ -21,6 +21,8 @@ if not settings.configured:
     settings.configure(
         DEBUG=True,
         OPENAI_API_KEY=os.getenv("OPENAI_API_KEY"),
+        MODEL_NAME=os.getenv("MODEL_NAME", "gpt-6-sol"),
+        LIGHT_MODEL_NAME=os.getenv("LIGHT_MODEL_NAME", "gpt-5.6-terra"),
         INSTALLED_APPS=[
             'chat',
         ],
@@ -56,10 +58,10 @@ def run_evals(output_file='results.json', eatp_mode='cold', correction_policy_fi
         tasks = json.load(f)
 
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
-    model_name = 'gpt-4.1'
+    model_name = settings.MODEL_NAME
 
     # We don't need a real get_user_message for chat_once
-    agent = Agent(client, model_name, lambda: ("", False), tools, light_model_name='gpt-4.1-mini')
+    agent = Agent(client, model_name, lambda: ("", False), tools, light_model_name=settings.LIGHT_MODEL_NAME)
 
     # Mock external API tools for deterministic eval
     from evals.mocks import MOCK_REGISTRY
